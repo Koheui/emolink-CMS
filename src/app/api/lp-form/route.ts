@@ -8,7 +8,7 @@ import { getTenantFromOrigin } from '@/lib/security/tenant-validation';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { email, tenant, lpId, productType, recaptchaToken } = body;
+    const { email, tenant, lpId, productType, recaptchaToken, testMode } = body;
 
     // バリデーション
     if (!email || !tenant || !lpId || !productType) {
@@ -78,9 +78,23 @@ export async function POST(request: NextRequest) {
       exp: Math.floor(Date.now() / 1000) + (72 * 60 * 60), // 72時間
     })).toString('base64');
 
+    // 生成されたリンク
+    const generatedLink = `${process.env.NEXT_PUBLIC_CLAIM_CONTINUE_URL || 'http://localhost:3000/claim'}?k=${jwt}`;
+
+    // テストモードの場合はメール送信をスキップ
+    if (testMode) {
+      return NextResponse.json({
+        ok: true,
+        message: 'Test link generated',
+        requestId,
+        link: generatedLink,
+        jwt: jwt,
+      });
+    }
+
     // メールリンクを送信
     const actionCodeSettings = {
-      url: `${process.env.NEXT_PUBLIC_CLAIM_CONTINUE_URL || 'http://localhost:3000/claim'}?k=${jwt}`,
+      url: generatedLink,
       handleCodeInApp: true,
     };
 
@@ -98,6 +112,7 @@ export async function POST(request: NextRequest) {
       ok: true,
       message: 'Mail sent',
       requestId,
+      link: generatedLink,
     });
 
   } catch (error) {

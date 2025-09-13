@@ -44,8 +44,19 @@ export function decodeAndValidateJWT(token: string): JWTData | null {
     const decoded = Buffer.from(padded, 'base64').toString();
     console.log('JWT payload (decoded):', decoded);
     
-    const jwtData: JWTData = JSON.parse(decoded);
-    console.log('JWT data:', jwtData);
+    const rawJwtData = JSON.parse(decoded);
+    console.log('Raw JWT data:', rawJwtData);
+    
+    // JWTペイロードのフィールド名を統一（requestId -> sub）
+    const jwtData: JWTData = {
+      sub: rawJwtData.requestId || rawJwtData.sub,
+      email: rawJwtData.email,
+      tenant: rawJwtData.tenant,
+      lpId: rawJwtData.lpId,
+      iat: rawJwtData.iat,
+      exp: rawJwtData.exp
+    };
+    console.log('Normalized JWT data:', jwtData);
     
     // 必須フィールドの検証
     if (!jwtData.sub || !jwtData.tenant || !jwtData.lpId || !jwtData.iat || !jwtData.exp) {
@@ -73,26 +84,31 @@ export function decodeAndValidateJWT(token: string): JWTData | null {
       timeToExpiry: expiration - now
     });
     
-    // 有効期限チェックを一時的に無効化（デバッグ用）
-    // if (now < issuedAt || now > expiration) {
-    //   console.error('JWT expired or not yet valid');
-    //   return null;
-    // }
+    // 有効期限チェック（開発環境では無効化）
+    if (process.env.NODE_ENV !== 'development') {
+      if (now < issuedAt || now > expiration) {
+        console.error('JWT expired or not yet valid');
+        return null;
+      }
+    }
     
     console.log('JWT validation passed');
     return jwtData;
   } catch (error) {
     console.error('JWT decode error:', error);
-    // エラーが発生した場合でも、テスト用にダミーデータを返す
-    console.log('Returning dummy JWT data for testing');
-    return {
-      sub: 'test-1757004804009',
-      email: 'fcb@live.jp',
-      tenant: 'futurestudio',
-      lpId: 'emolink.cloud',
-      iat: 1757004804,
-      exp: 1757264004
-    };
+    // 開発環境ではエラーでもダミーデータを返す
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Returning dummy JWT data for development');
+      return {
+        sub: 'req_mf7r254f_cazx4r',
+        email: 'test@example.com',
+        tenant: 'futurestudio',
+        lpId: 'emolink.cloud',
+        iat: 1757132057,
+        exp: 1757391257
+      };
+    }
+    return null;
   }
 }
 

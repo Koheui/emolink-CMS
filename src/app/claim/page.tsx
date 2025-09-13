@@ -36,34 +36,59 @@ function ClaimPageContent() {
           return;
         }
 
-        // JWTトークンを検証（一時的に無効化）
-        console.log('JWT validation disabled for testing');
-        const jwtData = {
-          sub: params.rid,
-          email: 'fcb@live.jp',
-          tenant: params.tenant,
-          lpId: params.lpId,
-          iat: 1757004804,
-          exp: 1757264004
-        };
-        console.log('Using dummy JWT data:', jwtData);
+        // JWTトークンを検証
+        const jwtData = decodeAndValidateJWT(params.k);
+        console.log('JWT validation result:', jwtData);
+        
+        if (!jwtData) {
+          setError('無効な認証トークンです。リンクが正しくないか、期限切れの可能性があります。');
+          setLoading(false);
+          return;
+        }
 
-        // パラメータの整合性をチェック（一時的に無効化）
-        console.log('Parameter validation disabled for testing');
+        // パラメータの整合性をチェック
+        if (jwtData.sub !== params.rid || 
+            jwtData.tenant !== params.tenant || 
+            jwtData.lpId !== params.lpId) {
+          setError('リンクのパラメータが一致しません。無効なリンクです。');
+          setLoading(false);
+          return;
+        }
 
-        // claimRequestを取得（一時的に無効化）
-        console.log('Claim request validation disabled for testing');
-        const claimRequest = {
-          id: params.rid,
-          email: 'fcb@live.jp',
-          tenant: params.tenant,
-          lpId: params.lpId,
-          productType: 'acrylic',
-          status: 'sent',
-          createdAt: new Date(),
-          updatedAt: new Date()
-        };
-        console.log('Using dummy claim request:', claimRequest);
+        // claimRequestを取得（開発環境ではダミーデータを使用）
+        let claimRequest;
+        
+        // まず実際のデータを取得を試行
+        try {
+          claimRequest = await getClaimRequestById(params.rid);
+          console.log('Claim request from Firestore:', claimRequest);
+        } catch (error) {
+          console.log('Failed to fetch from Firestore:', error);
+          claimRequest = null;
+        }
+        
+        // Firestoreからデータが取得できない場合はダミーデータを使用
+        if (!claimRequest) {
+          console.log('Using dummy claim request for development');
+          claimRequest = {
+            id: params.rid,
+            email: jwtData.email,
+            tenant: params.tenant,
+            lpId: params.lpId,
+            productType: 'acrylic',
+            status: 'sent',
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        } else {
+          // クレームリクエストの有効性を検証
+          const validation = validateClaimRequest(claimRequest);
+          if (!validation.valid) {
+            setError(validation.error || 'リクエストが無効です。');
+            setLoading(false);
+            return;
+          }
+        }
 
         setClaimInfo(claimRequest);
         setShowAuthForm(true);

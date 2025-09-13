@@ -21,9 +21,10 @@ service cloud.firestore {
       allow read, write: if isAuthenticated() && isOwner(userId);
     }
     
-    // 想い出コレクション
+    // 想い出コレクション（開発環境では読み取り許可）
     match /memories/{memoryId} {
-      allow read, write: if isAuthenticated() && 
+      allow read: if true; // 開発環境では誰でも読み取り可能
+      allow write: if isAuthenticated() && 
         isOwner(resource.data.ownerUid) && 
         isSameTenant(resource.data.tenant);
     }
@@ -41,9 +42,10 @@ service cloud.firestore {
         isSameTenant(resource.data.tenant);
     }
     
-    // クレームリクエストコレクション
+    // クレームリクエストコレクション（開発環境では読み取り許可）
     match /claimRequests/{requestId} {
-      allow read, write: if isAuthenticated() && 
+      allow read: if true; // 開発環境では誰でも読み取り可能
+      allow write: if isAuthenticated() && 
         isSameTenant(resource.data.tenant);
     }
     

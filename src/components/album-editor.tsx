@@ -16,6 +16,7 @@ import {
   Upload
 } from 'lucide-react';
 import FileUpload from './file-upload-modal';
+import BulkPhotoUpload from './bulk-photo-upload';
 
 interface AlbumItem {
   id: string;
@@ -48,6 +49,7 @@ export default function AlbumEditor({
   const [albumItems, setAlbumItems] = useState<AlbumItem[]>(items);
   const [editingItem, setEditingItem] = useState<string | null>(null);
   const [showFileUpload, setShowFileUpload] = useState(false);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
 
   const handleSave = () => {
@@ -66,6 +68,17 @@ export default function AlbumEditor({
     setAlbumItems([...albumItems, newItem]);
     setUploadingItemId(newItem.id);
     setShowFileUpload(true);
+  };
+
+  const handleBulkUploadComplete = (assets: any[]) => {
+    const newItems: AlbumItem[] = assets.map(asset => ({
+      id: asset.id,
+      type: 'image',
+      url: asset.url,
+      thumbnail: asset.thumbnail || asset.url
+    }));
+    setAlbumItems([...albumItems, ...newItems]);
+    setShowBulkUpload(false);
   };
 
   const updateItem = (id: string, updates: Partial<AlbumItem>) => {
@@ -135,7 +148,7 @@ export default function AlbumEditor({
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-medium">アイテム ({albumItems.length})</h3>
-              <div className="flex space-x-2">
+              <div className="flex flex-wrap gap-2">
                 <Button
                   size="sm"
                   variant="outline"
@@ -151,6 +164,15 @@ export default function AlbumEditor({
                 >
                   <Video className="w-4 h-4 mr-2" />
                   動画追加
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowBulkUpload(true)}
+                  className="bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  複数写真一括アップロード
                 </Button>
               </div>
             </div>
@@ -266,6 +288,21 @@ export default function AlbumEditor({
               setUploadingItemId(null);
             }}
           />
+        </div>
+      )}
+
+      {/* 複数写真一括アップロードモーダル */}
+      {showBulkUpload && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-60">
+          <div className="bg-white rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <BulkPhotoUpload
+              memoryId="album"
+              ownerUid="temp"
+              onUploadComplete={handleBulkUploadComplete}
+              onCancel={() => setShowBulkUpload(false)}
+              maxFiles={20}
+            />
+          </div>
         </div>
       )}
     </div>
