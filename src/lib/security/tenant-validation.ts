@@ -40,6 +40,19 @@ export function getCurrentTenant(): string {
     return 'unknown';
   }
   
+  // まずlocalStorageから保存されたテナント情報を取得（認証リンク経由で設定されたもの）
+  const savedTenant = localStorage.getItem('secretKeyTenant');
+  if (savedTenant) {
+    return savedTenant;
+  }
+  
+  // sessionStorageもチェック
+  const sessionTenant = sessionStorage.getItem('secretKeyTenant');
+  if (sessionTenant) {
+    return sessionTenant;
+  }
+  
+  // 保存されたテナント情報がない場合は、Originから取得（フォールバック）
   const origin = window.location.origin;
   try {
     const tenantInfo = getTenantFromOrigin(origin);

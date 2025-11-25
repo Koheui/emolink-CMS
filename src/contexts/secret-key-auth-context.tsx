@@ -13,7 +13,10 @@ interface SecretKeyAuthContextType {
   loading: boolean;
   currentTenant: string;
   isAuthenticated: boolean;
+  isAdmin: boolean; // 管理者かどうか
+  isSuperAdmin: boolean; // スーパー管理者かどうか
   authenticateWithSecretKey: (secretKey: string) => Promise<{ success: boolean; error?: string }>;
+  authenticateWithPassword: (password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
 }
 
@@ -23,7 +26,10 @@ const SecretKeyAuthContext = createContext<SecretKeyAuthContextType>({
   loading: true,
   currentTenant: 'unknown',
   isAuthenticated: false,
+  isAdmin: false,
+  isSuperAdmin: false,
   authenticateWithSecretKey: async () => ({ success: false }),
+  authenticateWithPassword: async () => ({ success: false }),
   logout: () => {},
 });
 
@@ -32,6 +38,10 @@ export function SecretKeyAuthProvider({ children }: { children: React.ReactNode 
   const [loading, setLoading] = useState(true);
   const [currentTenant, setCurrentTenant] = useState<string>('unknown');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  
+  // 管理者判定
+  const isAdmin = user?.role === 'tenantAdmin' || user?.role === 'superAdmin' || user?.role === 'fulfillmentOperator';
+  const isSuperAdmin = user?.role === 'superAdmin';
 
   // セッションから認証状態を復元
   useEffect(() => {
@@ -88,13 +98,15 @@ export function SecretKeyAuthProvider({ children }: { children: React.ReactNode 
     try {
       setLoading(true);
       
-      // 管理者用秘密鍵のチェック（開発用）
+      // 管理者用秘密鍵のチェック（開発用）- 最初にチェック（Firestore不要）
       if (isAdminSecretKey(secretKey)) {
+        console.log('Admin secret key detected, bypassing Firestore check');
         const adminUserData: User = {
           uid: 'admin-dev',
           email: 'admin@emolink.dev',
           displayName: '開発管理者',
           tenant: 'futurestudio',
+          role: 'superAdmin', // 開発用はスーパー管理者
           createdAt: new Date(),
           updatedAt: new Date(),
         };
@@ -116,57 +128,58 @@ export function SecretKeyAuthProvider({ children }: { children: React.ReactNode 
         return { success: true };
       }
       
-      // 通常の秘密鍵の有効性チェック
-      const secretKeyDoc = await getDoc(doc(db, 'secretKeys', secretKey));
+      // 通常の秘密鍵の有効性チェック（Firestoreに接続）はスキップ
+      // 開発環境ではFirestoreに接続しない
+      console.log('Non-admin secret key detected, skipping Firestore check for development');
+      return { success: false, error: 'この秘密鍵は使用できません。管理者用秘密鍵またはメールアドレスでログインしてください。' };
       
-      if (!secretKeyDoc.exists()) {
-        return { success: false, error: '無効な秘密鍵です' };
+    } catch (error) {
+      console.error('Authentication error:', error);
+      return { success: false, error: '認証中にエラーが発生しました' };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const authenticateWithPassword = async (password: string) => {
+    try {
+      setLoading(true);
+      
+      // 環境変数から開発用パスワードを取得
+      const devPassword = process.env.NEXT_PUBLIC_DEV_PASSWORD || 'dev1234';
+      
+      if (password !== devPassword) {
+        return { success: false, error: 'パスワードが正しくありません' };
       }
       
-      const secretKeyData = secretKeyDoc.data();
-      
-      if (secretKeyData.status !== 'active') {
-        return { success: false, error: 'この秘密鍵は使用済みです' };
-      }
-      
-      if (new Date() > secretKeyData.expiresAt.toDate()) {
-        return { success: false, error: 'この秘密鍵は期限切れです' };
-      }
-      
-      // 認証成功 - ユーザー情報を作成
-      const userData: User = {
-        uid: `secret-${Date.now()}`, // 一時的なUID
-        email: secretKeyData.email,
-        displayName: secretKeyData.email.split('@')[0],
-        tenant: secretKeyData.tenant,
+      // 開発用ユーザーデータを作成（一般ユーザーとして）
+      const devUserData: User = {
+        uid: 'dev-user',
+        email: 'dev@emolink.dev',
+        displayName: '開発ユーザー',
+        tenant: 'futurestudio',
+        role: 'user', // 一般ユーザー
         createdAt: new Date(),
         updatedAt: new Date(),
       };
       
       // セッションに保存
-      sessionStorage.setItem('secretKeyUser', JSON.stringify(userData));
-      sessionStorage.setItem('secretKeyTenant', secretKeyData.tenant);
+      sessionStorage.setItem('secretKeyUser', JSON.stringify(devUserData));
+      sessionStorage.setItem('secretKeyTenant', 'futurestudio');
       sessionStorage.setItem('secretKeyExpiry', (Date.now() + 24 * 60 * 60 * 1000).toString());
       
       // localStorageにも保存（より永続的）
-      localStorage.setItem('secretKeyUser', JSON.stringify(userData));
-      localStorage.setItem('secretKeyTenant', secretKeyData.tenant);
+      localStorage.setItem('secretKeyUser', JSON.stringify(devUserData));
+      localStorage.setItem('secretKeyTenant', 'futurestudio');
       localStorage.setItem('secretKeyExpiry', (Date.now() + 24 * 60 * 60 * 1000).toString());
       
-      setUser(userData);
-      setCurrentTenant(secretKeyData.tenant);
+      setUser(devUserData);
+      setCurrentTenant('futurestudio');
       setIsAuthenticated(true);
-      
-      // 秘密鍵を無効化
-      await updateDoc(doc(db, 'secretKeys', secretKey), {
-        status: 'used',
-        usedAt: new Date(),
-        usedBy: userData.email
-      });
       
       return { success: true };
     } catch (error) {
-      console.error('Authentication error:', error);
+      console.error('Password authentication error:', error);
       return { success: false, error: '認証中にエラーが発生しました' };
     } finally {
       setLoading(false);
@@ -192,7 +205,10 @@ export function SecretKeyAuthProvider({ children }: { children: React.ReactNode 
       loading,
       currentTenant,
       isAuthenticated,
+      isAdmin,
+      isSuperAdmin,
       authenticateWithSecretKey,
+      authenticateWithPassword,
       logout,
     }}>
       {children}

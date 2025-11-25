@@ -39,13 +39,18 @@ export async function processClaimRequest(claimRequest: ClaimRequest, userId: st
       throw new Error('テナント情報が一致しません');
     }
 
-    // 新しいメモリを作成
+    // 商品タイプを取得（ログ用）
+    const productType = claimRequest.productType || claimRequest.product || '';
+    
+    // LP経由でのみメモリを作成できるため、数量制限は不要
+    // 常に新規メモリを作成する（購入回数分だけメモリを作成可能）
     const newMemory: Omit<Memory, 'id'> = {
       ownerUid: userId,
       tenant: claimRequest.tenant,
       metadata: {
         lpId: claimRequest.lpId,
         source: 'claim-processor',
+        productType: productType,
       },
       title: '新しい想い出ページ',
       description: 'ここに想い出を書きましょう。',
@@ -67,22 +72,26 @@ export async function processClaimRequest(claimRequest: ClaimRequest, userId: st
     };
 
     const memoryRef = await addDoc(collection(db, 'memories'), newMemory);
+    const memoryId = memoryRef.id;
+    const memory: Memory = { id: memoryRef.id, ...newMemory };
 
-    // claimRequestsを更新
+    logSecurityEvent('claim_processed_memory_created', userId, originTenant, {
+      claimId: claimRequest.id,
+      memoryId: memoryId,
+      productType: productType,
+      message: 'LP経由で新規メモリ作成（数量制限なし）'
+    });
+
+    // claimRequestsを更新（既存メモリの場合も更新）
     await updateDoc(doc(db, 'claimRequests', claimRequest.id), {
       status: 'claimed',
       claimedAt: new Date(),
       claimedByUid: userId,
-      memoryId: memoryRef.id,
+      memoryId: memoryId,
       updatedAt: new Date(),
     });
 
-    logSecurityEvent('claim_processed_memory_created', userId, originTenant, {
-      claimId: claimRequest.id,
-      memoryId: memoryRef.id
-    });
-
-    return { id: memoryRef.id, ...newMemory };
+    return memory;
   } catch (error) {
     logSecurityEvent('process_claim_request_error', userId, claimRequest.tenant, {
       claimId: claimRequest.id,

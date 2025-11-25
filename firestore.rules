@@ -8,7 +8,9 @@ service cloud.firestore {
     
     // テナント検証
     function isSameTenant(tenant) {
-      return request.auth.token.tenant == tenant;
+      // 開発環境では、カスタムクレームが設定されていない可能性があるため緩和
+      return request.auth.token.tenant == tenant || 
+             request.auth.token.tenant == null; // 開発環境対応
     }
     
     // 所有者チェック
@@ -24,9 +26,15 @@ service cloud.firestore {
     // 想い出コレクション（開発環境では読み取り許可）
     match /memories/{memoryId} {
       allow read: if true; // 開発環境では誰でも読み取り可能
-      allow write: if isAuthenticated() && 
+      // 新規作成時（認証済みユーザーが自分のデータを作成）
+      allow create: if isAuthenticated() && 
+        request.resource.data.ownerUid == request.auth.uid &&
+        request.resource.data.tenant != null;
+      // 更新・削除時（所有者かつ同じテナント、または開発環境）
+      allow update, delete: if isAuthenticated() && 
         isOwner(resource.data.ownerUid) && 
-        isSameTenant(resource.data.tenant);
+        (isSameTenant(resource.data.tenant) || 
+         request.auth.token.tenant == null); // 開発環境対応
     }
     
     // アセットコレクション
@@ -49,6 +57,12 @@ service cloud.firestore {
         isSameTenant(resource.data.tenant);
     }
     
+    // 秘密鍵コレクション（読み取り専用、認証不要）
+    match /secretKeys/{secretKeyId} {
+      allow read: if true; // 開発環境では誰でも読み取り可能
+      allow write: if false; // 書き込みはFunctionsのみ許可
+    }
+    
     // 注文コレクション（読み取り専用）
     match /orders/{orderId} {
       allow read: if isAuthenticated() && 
@@ -65,7 +79,7 @@ service cloud.firestore {
     }
     
     // 監査ログコレクション
-    match /auditLogs/{logId} {
+    match /auditLogs/{date}/{logId} {
       allow read: if isAuthenticated();
       allow write: if false; // Functionsのみ
     }

@@ -20,6 +20,7 @@ export default function OrderManagementDashboard() {
   const [shippingInfo, setShippingInfo] = useState<ShippingInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sendingEmail, setSendingEmail] = useState(false);
 
   useEffect(() => {
     if (!loading && !isAuthenticated) {
@@ -99,6 +100,51 @@ export default function OrderManagementDashboard() {
       hour: '2-digit',
       minute: '2-digit',
     }).format(date);
+  };
+
+  const sendLoginEmail = async (order: Order) => {
+    if (!order.secretKey || !order.email) {
+      setError('秘密鍵またはメールアドレスが設定されていません');
+      return;
+    }
+
+    try {
+      setSendingEmail(true);
+      setError(null);
+
+      const loginUrl = `${window.location.origin}/?mode=secretKey&key=${order.secretKey}`;
+      
+      // Cloud Functionを呼び出してメール送信
+      const response = await fetch(
+        'https://asia-northeast1-memorylink-cms.cloudfunctions.net/sendLoginEmail',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            email: order.email,
+            secretKey: order.secretKey,
+            loginUrl: loginUrl,
+            tenantId: order.tenant || 'futurestudio',
+            customerInfo: {
+              name: order.email?.split('@')[0] || 'お客様',
+            },
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('メール送信に失敗しました');
+      }
+
+      alert('ログイン情報をメールで送信しました');
+    } catch (error) {
+      console.error('Error sending email:', error);
+      setError('メール送信中にエラーが発生しました');
+    } finally {
+      setSendingEmail(false);
+    }
   };
 
   if (loading) {
@@ -252,6 +298,48 @@ export default function OrderManagementDashboard() {
                     />
                   </CardContent>
                 </Card>
+
+                {/* ログイン情報送信 */}
+                {selectedOrder.secretKey && selectedOrder.email && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>ログイン情報</CardTitle>
+                      <CardDescription>
+                        顧客にログイン情報をメールで送信できます
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-sm font-medium text-gray-700 mb-2">秘密鍵</p>
+                          <div className="font-mono bg-gray-100 p-2 rounded text-sm">
+                            {selectedOrder.secretKey}
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-700 mb-2">メールアドレス</p>
+                          <div className="text-sm text-gray-600">
+                            {selectedOrder.email}
+                          </div>
+                        </div>
+                        <Button
+                          onClick={() => sendLoginEmail(selectedOrder)}
+                          disabled={sendingEmail}
+                          className="w-full"
+                        >
+                          {sendingEmail ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                              送信中...
+                            </>
+                          ) : (
+                            'ログイン情報をメール送信'
+                          )}
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* アクション */}
                 <Card>

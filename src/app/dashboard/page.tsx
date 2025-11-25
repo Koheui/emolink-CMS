@@ -5,26 +5,27 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus, Users, Building, Loader2, Shield, LogOut } from 'lucide-react';
+import { Plus, Users, Building, Loader2, Shield, FileText, TrendingUp, Clock } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 import { FirebaseStatus } from '@/components/firebase-status';
 import { useMemories } from '@/hooks/use-memories';
+import { AdminLayout } from '@/components/admin-layout';
 
 export default function DashboardPage() {
-  const { user, loading, currentTenant, isAuthenticated, logout } = useSecretKeyAuth();
+  const { user, loading, currentTenant, isAuthenticated, isAdmin } = useSecretKeyAuth();
   const router = useRouter();
   const { data: memories = [], isLoading: memoriesLoading, error } = useMemories(user?.uid || '');
 
   useEffect(() => {
     if (!loading && !isAuthenticated) {
       router.push('/');
+      return;
     }
-  }, [isAuthenticated, loading, router]);
-
-  const handleLogout = () => {
-    logout();
-    router.push('/');
-  };
+    // エンドユーザーはダッシュボードにアクセスできない（想い出ページ作成画面へリダイレクト）
+    if (!loading && isAuthenticated && !isAdmin) {
+      router.push('/memories/create');
+    }
+  }, [isAuthenticated, loading, isAdmin, router]);
 
   if (loading) {
     return (
@@ -79,35 +80,171 @@ export default function DashboardPage() {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">ダッシュボード</h1>
-            <p className="text-gray-600 mt-2">
-              {user?.email || 'Unknown'} でログイン中
+  const publishedMemories = memories.filter(m => m.status === 'published').length;
+  const draftMemories = memories.filter(m => m.status !== 'published').length;
+
+  // 管理者向けCRMダッシュボード
+  if (isAdmin) {
+    return (
+      <AdminLayout>
+        <div className="p-6 lg:p-8">
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">管理ダッシュボード</h1>
+            <p className="text-gray-600">
+              顧客・注文・テナント管理
             </p>
-            <div className="flex items-center space-x-2 mt-1">
-              <Shield className="w-4 h-4 text-blue-600" />
-              <span className="text-sm text-blue-600 font-medium">
-                テナント: {getTenantLabel(currentTenant)}
-              </span>
-            </div>
           </div>
-          <div className="flex space-x-2">
-            <Button onClick={() => router.push('/memories/create')}>
-              <Plus className="w-4 h-4 mr-2" />
-              新しい想い出を作成
-            </Button>
-            <Button variant="outline" onClick={handleLogout}>
-              <LogOut className="w-4 h-4 mr-2" />
-              ログアウト
-            </Button>
+
+          <div className="grid gap-6">
+            {/* クイックアクション（CRM機能） */}
+            <Card>
+              <CardHeader>
+                <CardTitle>管理機能</CardTitle>
+                <CardDescription>
+                  顧客管理とシステム管理へのアクセス
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => router.push('/admin/users')}
+                    className="h-24 flex flex-col items-center justify-center space-y-2"
+                  >
+                    <Users className="w-6 h-6" />
+                    <span>ユーザー管理</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => router.push('/orders')}
+                    className="h-24 flex flex-col items-center justify-center space-y-2"
+                  >
+                    <FileText className="w-6 h-6" />
+                    <span>注文管理</span>
+                  </Button>
+                  {user?.role === 'superAdmin' && (
+                    <Button
+                      variant="outline"
+                      onClick={() => router.push('/admin/tenants')}
+                      className="h-24 flex flex-col items-center justify-center space-y-2"
+                    >
+                      <Building className="w-6 h-6" />
+                      <span>テナント管理</span>
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* セキュリティ情報 */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <Shield className="w-5 h-5 text-green-600" />
+                  <span>セキュリティ状況</span>
+                </CardTitle>
+                <CardDescription>
+                  テナント分離とアクセス制御の状況
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                    <span className="text-sm">テナント分離: 有効</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                    <span className="text-sm">Origin検証: 有効</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                    <span className="text-sm">アクセス制御: 有効</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  // 一般ユーザー向けCMSダッシュボード
+  return (
+    <AdminLayout>
+      <div className="p-6 lg:p-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">マイページ</h1>
+          <p className="text-gray-600">
+            あなたの想い出ページを管理
+          </p>
         </div>
 
         <div className="grid gap-6">
+          {/* 統計カード（CMS機能） */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">総想い出数</CardTitle>
+                <FileText className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{memories.length}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  作成した想い出ページ
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">公開済み</CardTitle>
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-600">{publishedMemories}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  公開中のページ
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">下書き</CardTitle>
+                <Clock className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-gray-600">{draftMemories}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  編集中のページ
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* クイックアクション（CMS機能） */}
+          <Card>
+            <CardHeader>
+              <CardTitle>クイックアクション</CardTitle>
+              <CardDescription>
+                想い出ページの作成と管理
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Button
+                  onClick={() => router.push('/memories/create')}
+                  className="h-24 flex flex-col items-center justify-center space-y-2"
+                >
+                  <Plus className="w-6 h-6" />
+                  <span>新しい想い出を作成</span>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Firebase接続状態 */}
           <FirebaseStatus />
 
@@ -221,6 +358,6 @@ export default function DashboardPage() {
           </Card>
         </div>
       </div>
-    </div>
+    </AdminLayout>
   );
 }

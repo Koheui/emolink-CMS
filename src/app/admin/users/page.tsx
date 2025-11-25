@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Users, UserCheck, UserX, Clock } from 'lucide-react';
+import { AdminLayout } from '@/components/admin-layout';
 import { collection, query, orderBy, getDocs, doc, updateDoc, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { getTenantFromOrigin, addTenantFilter, logSecurityEvent } from '@/lib/security/tenant-validation';
@@ -55,6 +56,7 @@ export default function UsersPage() {
       setError('テナント検証に失敗しました');
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser, authLoading]);
 
   const fetchUsers = async (tenant: string) => {
@@ -183,8 +185,9 @@ export default function UsersPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <AdminLayout>
+      <div className="p-6 lg:p-8">
+        <div className="max-w-7xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">ユーザー管理</h1>
@@ -221,58 +224,85 @@ export default function UsersPage() {
                 ユーザーが見つかりません
               </div>
             ) : (
-              <div className="space-y-4">
-                {users.map((user) => (
-                  <div key={user.uid} className="border rounded-lg p-4 bg-white">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-3">
-                          <div>
-                            <h3 className="font-medium">{user.email}</h3>
-                            {user.displayName && (
-                              <p className="text-sm text-gray-500">{user.displayName}</p>
-                            )}
-                          </div>
-                          {getStatusBadge(user.status)}
-                        </div>
-                        <div className="mt-2 text-sm text-gray-500">
-                          登録日: {user.createdAt.toLocaleDateString('ja-JP')}
-                        </div>
-                      </div>
-                      <div className="flex space-x-2">
-                        {user.status === 'pending' && (
-                          <Button
-                            size="sm"
-                            onClick={() => updateUserStatus(user.uid, 'verified')}
-                          >
-                            認証
-                          </Button>
-                        )}
-                        {user.status === 'verified' && (
-                          <Button
-                            size="sm"
-                            onClick={() => updateUserStatus(user.uid, 'processing')}
-                          >
-                            制作開始
-                          </Button>
-                        )}
-                        {user.status === 'processing' && (
-                          <Button
-                            size="sm"
-                            onClick={() => updateUserStatus(user.uid, 'shipped')}
-                          >
-                            発送
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
+              <div className="border rounded-lg overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50 border-b">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          ユーザー
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          ステータス
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          登録日
+                        </th>
+                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          操作
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {users.map((user) => (
+                        <tr key={user.uid} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">
+                                {user.email}
+                              </div>
+                              {user.displayName && (
+                                <div className="text-sm text-gray-500 mt-1">
+                                  {user.displayName}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            {getStatusBadge(user.status)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {user.createdAt.toLocaleDateString('ja-JP')}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            <div className="flex items-center justify-end space-x-2">
+                              {user.status === 'pending' && (
+                                <Button
+                                  size="sm"
+                                  onClick={() => updateUserStatus(user.uid, 'verified')}
+                                >
+                                  認証
+                                </Button>
+                              )}
+                              {user.status === 'verified' && (
+                                <Button
+                                  size="sm"
+                                  onClick={() => updateUserStatus(user.uid, 'processing')}
+                                >
+                                  制作開始
+                                </Button>
+                              )}
+                              {user.status === 'processing' && (
+                                <Button
+                                  size="sm"
+                                  onClick={() => updateUserStatus(user.uid, 'shipped')}
+                                >
+                                  発送
+                                </Button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </CardContent>
         </Card>
+        </div>
       </div>
-    </div>
+    </AdminLayout>
   );
 }

@@ -91,6 +91,10 @@ function ClaimPageContent() {
         }
 
         setClaimInfo(claimRequest);
+        // テナント情報をlocalStorageに保存（認証完了時に使用）
+        if (claimRequest.tenant) {
+          localStorage.setItem('pendingTenant', claimRequest.tenant);
+        }
         setShowAuthForm(true);
         setLoading(false);
 
@@ -146,6 +150,10 @@ function ClaimPageContent() {
         <ClaimAuthForm
           claimInfo={claimInfo}
           onSuccess={() => {
+            // LP経由で来たことを示すフラグを設定
+            if (typeof window !== 'undefined') {
+              sessionStorage.setItem('fromClaim', 'true');
+            }
             setShowAuthForm(false);
             setShowMemoryEditor(true);
           }}
@@ -163,7 +171,11 @@ function ClaimPageContent() {
           console.log('Memory saved:', memoryData);
           setSuccess(true);
           setTimeout(() => {
-            router.push('/memories/create?auth=bypass');
+            // fromClaimフラグを設定してから遷移
+            if (typeof window !== 'undefined') {
+              sessionStorage.setItem('fromClaim', 'true');
+            }
+            router.push('/memories/create');
           }, 2000);
         }}
         onBack={() => {

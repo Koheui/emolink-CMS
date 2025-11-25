@@ -127,9 +127,10 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
     // セッションのメタデータから注文情報を取得
     const metadata = session.metadata || {};
     const email = session.customer_email || metadata.email;
-    const tenant = metadata.tenant || metadata.tenantId;
-    const productType = metadata.productType;
-    const lpId = metadata.lpId;
+    // 将来的に使用する可能性がある変数（現在は未使用）
+    // const tenant = metadata.tenant || metadata.tenantId;
+    // const productType = metadata.productType;
+    // const lpId = metadata.lpId;
     const orderId = metadata.orderId || session.id;
 
     if (!email) {

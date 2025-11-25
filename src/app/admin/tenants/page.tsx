@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Building, Plus, Edit, Settings, Users, Package } from 'lucide-react';
+import { AdminLayout } from '@/components/admin-layout';
 import { collection, query, orderBy, getDocs, doc, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { getTenantFromOrigin, logSecurityEvent } from '@/lib/security/tenant-validation';
@@ -222,8 +223,9 @@ export default function TenantsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <AdminLayout>
+      <div className="p-6 lg:p-8">
+        <div className="max-w-7xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">テナント管理</h1>
@@ -357,60 +359,89 @@ export default function TenantsPage() {
                 テナントが見つかりません
               </div>
             ) : (
-              <div className="space-y-4">
-                {tenants.map((tenant) => (
-                  <div key={tenant.id} className="border rounded-lg p-4 bg-white">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-3">
-                          <div>
-                            <h3 className="font-medium">{tenant.name}</h3>
-                            {tenant.description && (
-                              <p className="text-sm text-gray-500">{tenant.description}</p>
-                            )}
-                          </div>
-                          {getStatusBadge(tenant.status)}
-                        </div>
-                        
-                        <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-600">
-                          <div>
-                            <strong>LP ID:</strong> {tenant.allowedLpIds.join(', ')}
-                          </div>
-                          <div>
-                            <strong>商品タイプ:</strong> {tenant.enabledProductTypes.join(', ')}
-                          </div>
-                          <div>
-                            <strong>作成日:</strong> {tenant.createdAt.toLocaleDateString('ja-JP')}
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="flex space-x-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setEditingTenant(tenant)}
-                        >
-                          <Edit className="w-4 h-4 mr-1" />
-                          編集
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => router.push(`/admin/tenants/${tenant.id}/settings`)}
-                        >
-                          <Settings className="w-4 h-4 mr-1" />
-                          設定
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+              <div className="border rounded-lg overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50 border-b">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          テナント名
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          ステータス
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          LP ID
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          商品タイプ
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          作成日
+                        </th>
+                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          操作
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {tenants.map((tenant) => (
+                        <tr key={tenant.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">
+                                {tenant.name}
+                              </div>
+                              {tenant.description && (
+                                <div className="text-sm text-gray-500 mt-1">
+                                  {tenant.description}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            {getStatusBadge(tenant.status)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {tenant.allowedLpIds.join(', ')}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {tenant.enabledProductTypes.join(', ')}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {tenant.createdAt.toLocaleDateString('ja-JP')}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            <div className="flex items-center justify-end space-x-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setEditingTenant(tenant)}
+                              >
+                                <Edit className="w-4 h-4 mr-1" />
+                                編集
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => router.push(`/admin/tenants/${tenant.id}/settings`)}
+                              >
+                                <Settings className="w-4 h-4 mr-1" />
+                                設定
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </CardContent>
         </Card>
+        </div>
       </div>
-    </div>
+    </AdminLayout>
   );
 }

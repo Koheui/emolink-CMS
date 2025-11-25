@@ -208,6 +208,53 @@ export async function updatePublicPage(pageId: string, updates: Partial<PublicPa
   });
 }
 
+/**
+ * 同じテナント・同じユーザーの公開ページ一覧を取得
+ * @param tenant テナント名
+ * @param ownerUid ユーザーID
+ * @returns 公開ページの一覧
+ */
+export async function getPublicPagesByTenantAndUser(tenant: string, ownerUid: string): Promise<PublicPage[]> {
+  // まず、同じテナント・同じユーザーの公開済みメモリを取得
+  const memoriesQuery = query(
+    memoriesCollection,
+    where('ownerUid', '==', ownerUid),
+    where('tenant', '==', tenant),
+    where('status', '==', 'published')
+  );
+  const memoriesSnapshot = await getDocs(memoriesQuery);
+  const memoryIds = memoriesSnapshot.docs.map(doc => doc.id);
+  
+  if (memoryIds.length === 0) {
+    return [];
+  }
+  
+  // それらのメモリに関連する公開ページを取得
+  const pages: PublicPage[] = [];
+  for (const memoryId of memoryIds) {
+    const pagesQuery = query(
+      publicPagesCollection,
+      where('tenant', '==', tenant),
+      where('memoryId', '==', memoryId),
+      where('publish.status', '==', 'published')
+    );
+    const pagesSnapshot = await getDocs(pagesQuery);
+    pages.push(...pagesSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate() || new Date(),
+      updatedAt: doc.data().updatedAt?.toDate() || new Date(),
+    })) as PublicPage[]);
+  }
+  
+  // 公開日時でソート
+  return pages.sort((a, b) => {
+    const aDate = a.publish?.publishedAt?.getTime() || 0;
+    const bDate = b.publish?.publishedAt?.getTime() || 0;
+    return bDate - aDate;
+  });
+}
+
 // Claim Requests (Read only for client)
 export const claimRequestsCollection = collection(db, 'claimRequests');
 

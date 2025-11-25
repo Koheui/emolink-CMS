@@ -5,15 +5,55 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat('ja-JP', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  }).format(date);
+export function formatDate(date: Date | string | number): string {
+  const d = new Date(date);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
-// 動画サムネイル生成
+/**
+ * テナントごとに異なる公開ページURLを生成
+ * @param pageId 公開ページID
+ * @param tenant テナント名（オプション、指定しない場合は現在のテナントを使用）
+ * @param baseUrl ベースURL（オプション、指定しない場合は現在のOriginを使用）
+ * @returns 公開ページのURL
+ */
+export function generatePublicPageUrl(pageId: string, tenant?: string, baseUrl?: string): string {
+  if (typeof window === 'undefined') {
+    // サーバーサイドの場合は、テナント情報をクエリパラメータで含める
+    const url = baseUrl || process.env.NEXT_PUBLIC_APP_URL || 'https://emolink.cloud';
+    if (tenant) {
+      return `${url}/public/${pageId}?tenant=${tenant}`;
+    }
+    return `${url}/public/${pageId}`;
+  }
+
+  // クライアントサイドの場合は、現在のテナント情報を使用
+  const currentTenant = tenant || localStorage.getItem('secretKeyTenant') || 'unknown';
+  const origin = baseUrl || window.location.origin;
+  
+  // テナント情報をクエリパラメータで含める（NFCタグ用に短いURLを維持）
+  return `${origin}/public/${pageId}?tenant=${currentTenant}`;
+}
+
+/**
+ * NFCタグ用の短縮URLを生成（テナント情報を含む）
+ * @param pageId 公開ページID
+ * @param tenant テナント名
+ * @param baseUrl ベースURL（オプション）
+ * @returns NFCタグ用のURL
+ */
+export function generateNfcUrl(pageId: string, tenant?: string, baseUrl?: string): string {
+  return generatePublicPageUrl(pageId, tenant, baseUrl);
+}
+
+/**
+ * 動画サムネイル生成
+ * @param videoFile 動画ファイル
+ * @returns サムネイルのDataURL
+ */
 export function generateVideoThumbnail(videoFile: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
@@ -88,7 +128,11 @@ export function generateVideoThumbnail(videoFile: File): Promise<string> {
   });
 }
 
-// 動画の長さを取得
+/**
+ * 動画の長さを取得
+ * @param videoFile 動画ファイル
+ * @returns 動画の長さ（秒）
+ */
 export function getVideoDuration(videoFile: File): Promise<number> {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
@@ -107,18 +151,11 @@ export function getVideoDuration(videoFile: File): Promise<number> {
   });
 }
 
-// ファイルサイズを人間が読みやすい形式に変換
-export function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 Bytes';
-  
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-// 動画の解像度を取得
+/**
+ * 動画の解像度を取得
+ * @param videoFile 動画ファイル
+ * @returns 動画の解像度（幅と高さ）
+ */
 export function getVideoResolution(videoFile: File): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');

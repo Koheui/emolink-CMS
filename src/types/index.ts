@@ -3,6 +3,8 @@ export interface User {
   email: string;
   displayName?: string;
   tenant?: string; // テナント情報を追加
+  role?: 'user' | 'tenantAdmin' | 'superAdmin' | 'fulfillmentOperator'; // ユーザーロール
+  adminTenant?: string; // 管理者の場合のテナント（tenantAdmin/fulfillmentOperator用）
   createdAt: Date;
   updatedAt: Date;
 }
@@ -17,6 +19,7 @@ export interface Memory {
   publicPageId?: string;
   coverAssetId?: string;
   profileAssetId?: string;
+  coverImagePosition?: string;
   description?: string;
   design: {
     theme: string;
@@ -26,6 +29,16 @@ export interface Memory {
       secondary: string;
       background: string;
     };
+  };
+  colors?: {
+    accent: string;
+    text: string;
+    background: string;
+    cardBackground?: string;
+  };
+  fontSizes?: {
+    title?: number;
+    body?: number;
   };
   blocks: Block[];
   metadata?: {
@@ -98,9 +111,20 @@ export interface PublicPage {
       background: string;
     };
   };
+  colors?: {
+    accent: string;
+    text: string;
+    background: string;
+    cardBackground?: string;
+  };
   media: {
     cover?: string;
     profile?: string;
+  };
+  coverImagePosition?: string;
+  fontSizes?: {
+    title?: number;
+    body?: number;
   };
   ordering: string[];
   publish: {
@@ -120,8 +144,10 @@ export interface Order {
   id: string;
   tenant: string;
   emailHash: string;
+  email?: string;       // メールアドレス（オプショナル、メール送信時に使用）
   memoryId: string;
-  productType: string;
+  productType: string;  // 後方互換性のため保持（廃止予定）
+  product?: string;     // 新規：商品名を直接入力
   status: 'draft' | 'paid' | 'nfcReady' | 'shipped' | 'delivered';
   
   // Stripe決済情報
@@ -192,6 +218,8 @@ export interface ClaimRequest {
   email: string;
   tenant: string;
   lpId: string;
+  productType?: string;  // 後方互換性のため保持（廃止予定）
+  product?: string;      // 新規：商品名を直接入力
   origin: string;
   ip: string;
   ua: string;
@@ -214,7 +242,7 @@ export interface AuditLog {
   ts: Date;
 }
 
-// プロダクトタイプの定数
+// プロダクトタイプの定数（後方互換性のため保持）
 export const PRODUCT_TYPES = {
   ACRYLIC: 'acrylic',
   DIGITAL: 'digital',
@@ -224,13 +252,27 @@ export const PRODUCT_TYPES = {
 
 export type ProductType = typeof PRODUCT_TYPES[keyof typeof PRODUCT_TYPES];
 
-// プロダクトタイプの日本語名
+// プロダクトタイプの日本語名（デフォルト名）
 export const PRODUCT_TYPE_NAMES: Record<ProductType, string> = {
   [PRODUCT_TYPES.ACRYLIC]: 'NFCタグ付きアクリルスタンド',
   [PRODUCT_TYPES.DIGITAL]: 'デジタル想い出ページ',
   [PRODUCT_TYPES.PREMIUM]: 'プレミアム想い出サービス',
   [PRODUCT_TYPES.STANDARD]: 'スタンダード想い出サービス',
 };
+
+/**
+ * 商品名を取得するヘルパー関数
+ * product がある場合は product を返し、ない場合は productType からデフォルト名を返す
+ */
+export function getProductName(order: { product?: string; productType?: string }): string {
+  if (order.product) {
+    return order.product;
+  }
+  if (order.productType) {
+    return PRODUCT_TYPE_NAMES[order.productType as ProductType] || order.productType;
+  }
+  return '商品名未設定';
+}
 
 // テナント情報の型定義
 export interface Tenant {

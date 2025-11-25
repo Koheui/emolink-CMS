@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
       // TODO: 実際のreCAPTCHA検証を実装
     }
 
-    // claimRequestsに保存
+    // 1. claimRequestsに保存
     const claimRequest = {
       email,
       tenant: actualTenant,
@@ -62,12 +62,35 @@ export async function POST(request: NextRequest) {
       ua: request.headers.get('user-agent') || 'unknown',
       recaptchaScore: recaptchaToken === 'dev-token' ? 1.0 : 0.5,
       status: 'pending',
+      source: 'manual_entry', // BtoBでの手動入力
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
 
     const docRef = await addDoc(collection(db, 'claimRequests'), claimRequest);
     const requestId = docRef.id;
+
+    // 2. 注文（orders）を作成（BtoB店舗受付用）
+    const { generateSecretKey } = await import('@/lib/secret-key-utils');
+    const secretKey = generateSecretKey();
+    const orderData = {
+      orderId: requestId,
+      email,
+      tenant: actualTenant,
+      lpId: actualLpId,
+      productType,
+      product: productType, // 商品名は後でカスタマイズ可能
+      status: 'paid', // すでに決済済み
+      orderStatus: 'photo_upload_pending', // 写真アップロード待ち
+      secretKey: secretKey,
+      secretKeyExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30日
+      paymentStatus: 'completed', // 決済済み
+      source: 'manual_entry', // BtoBでの手動入力
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+
+    await addDoc(collection(db, 'orders'), orderData);
 
     // JWTトークンを生成（簡易版）
     const jwt = Buffer.from(JSON.stringify({

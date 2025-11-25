@@ -28,6 +28,10 @@ export function validateSecretKeyFormat(secretKey: string): boolean {
  * @returns 管理者用の場合はtrue
  */
 export function isAdminSecretKey(secretKey: string): boolean {
-  return secretKey === 'emolinkemolinkemo';
+  // 管理者用秘密鍵（16桁）
+  const ADMIN_KEY = 'EMOLINKEMOLINKEM';
+  
+  // 大文字小文字を区別しないで比較
+  return secretKey.toUpperCase() === ADMIN_KEY;
 }
 

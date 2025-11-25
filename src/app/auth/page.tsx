@@ -12,6 +12,7 @@ function AuthContent() {
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [tenantFromLink, setTenantFromLink] = useState<string | null>(null);
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -28,6 +29,10 @@ function AuthContent() {
         const jwtData = decodeAndValidateJWT(jwt);
         if (jwtData && jwtData.email) {
           setEmail(jwtData.email);
+          // テナント情報を保存（認証完了時に使用）
+          setTenantFromLink(tenant);
+          // テナント情報をlocalStorageに一時保存（認証完了時に使用）
+          localStorage.setItem('pendingTenant', tenant);
           setMessage('認証リンクが検証されました。メール認証を完了してください。');
         }
       } catch (error) {
@@ -38,21 +43,89 @@ function AuthContent() {
 
     // メールリンクでのサインインをチェック
     if (isSignInWithEmailLink(auth, window.location.href)) {
-      handleEmailLinkSignIn();
+      // メールアドレスが設定されていない場合は、ローカルストレージから取得
+      const savedEmail = localStorage.getItem('emailForSignIn');
+      if (savedEmail && !email) {
+        setEmail(savedEmail);
+      }
+      // 少し遅延させてから認証処理を実行（email stateが更新されるのを待つ）
+      const timer = setTimeout(() => {
+        handleEmailLinkSignIn();
+      }, 200);
+      
+      return () => clearTimeout(timer);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
   const handleEmailLinkSignIn = async () => {
     setIsLoading(true);
     try {
-      const result = await signInWithEmailLink(auth, email, window.location.href);
-      console.log('メールリンク認証成功:', result.user.uid);
-      setMessage('認証が完了しました。メモリ作成ページに移動します。');
+      // ローカルストレージからメールアドレスを取得
+      let emailForAuth = email || localStorage.getItem('emailForSignIn');
       
-      // メモリ作成ページにリダイレクト
+      if (!emailForAuth) {
+        setMessage('メールアドレスが必要です。メールアドレスを入力してください。');
+        setIsLoading(false);
+        return;
+      }
+
+      const result = await signInWithEmailLink(auth, emailForAuth, window.location.href);
+      console.log('メールリンク認証成功:', result.user.uid);
+      
+      // ローカルストレージからメールアドレスを削除
+      localStorage.removeItem('emailForSignIn');
+      
+      // 認証リンクから取得したテナント情報を取得（優先）
+      const pendingTenant = tenantFromLink || localStorage.getItem('pendingTenant');
+      localStorage.removeItem('pendingTenant');
+      
+      // Firebase Authのユーザー情報をSecretKey認証システムに統合
+      const firebaseUser = result.user;
+      
+      // Firebase Authのカスタムクレームからロールを取得（開発環境では取得できないためデフォルトはuser）
+      let userRole: 'user' | 'tenantAdmin' | 'superAdmin' | 'fulfillmentOperator' = 'user';
+      let adminTenant: string | undefined;
+      
+      try {
+        const tokenResult = await firebaseUser.getIdTokenResult();
+        if (tokenResult.claims.role) {
+          userRole = tokenResult.claims.role as any;
+          adminTenant = tokenResult.claims.adminTenant as string | undefined;
+        }
+      } catch (error) {
+        console.log('Custom claims not available, using default role: user');
+      }
+      
+      // テナント情報の決定：管理者の場合はadminTenant、それ以外は認証リンクから取得したテナント、なければデフォルト
+      const finalTenant = adminTenant || pendingTenant || 'futurestudio';
+      
+      const userData = {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email || emailForAuth,
+        displayName: firebaseUser.displayName || emailForAuth.split('@')[0],
+        tenant: finalTenant, // 認証リンクから取得したテナントを使用
+        role: userRole,
+        adminTenant: adminTenant,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      
+      // SecretKey認証システムのセッションに保存
+      sessionStorage.setItem('secretKeyUser', JSON.stringify(userData));
+      sessionStorage.setItem('secretKeyTenant', finalTenant);
+      sessionStorage.setItem('secretKeyExpiry', (Date.now() + 24 * 60 * 60 * 1000).toString());
+      
+      localStorage.setItem('secretKeyUser', JSON.stringify(userData));
+      localStorage.setItem('secretKeyTenant', finalTenant);
+      localStorage.setItem('secretKeyExpiry', (Date.now() + 24 * 60 * 60 * 1000).toString());
+      
+      setMessage('認証が完了しました。想い出ページ作成画面に移動します。');
+      
+      // 想い出ページ作成画面にリダイレクト（エンドユーザーはダッシュボードを経由しない）
       setTimeout(() => {
-        router.push('/memories/create');
-      }, 2000);
+        window.location.href = '/memories/create';
+      }, 1500);
     } catch (error: any) {
       console.error('メールリンク認証エラー:', error);
       setMessage(`認証に失敗しました: ${error.message}`);
@@ -69,8 +142,11 @@ function AuthContent() {
 
     setIsLoading(true);
     try {
+      // メールアドレスをローカルストレージに保存（認証時に使用）
+      localStorage.setItem('emailForSignIn', email);
+      
       const actionCodeSettings = {
-        url: window.location.origin + '/memories/create',
+        url: window.location.origin + '/auth',
         handleCodeInApp: true,
       };
 

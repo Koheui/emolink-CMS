@@ -38,6 +38,10 @@ export default function ClaimAuthForm({ claimInfo, onSuccess, onError }: ClaimAu
       // 開発用秘密鍵のチェック
       if (secretKey === 'emolinkemolinkemo') {
         console.log('Development secret key accepted');
+        // テナント情報を保存（claimInfoから取得）
+        if (claimInfo?.tenant) {
+          localStorage.setItem('pendingTenant', claimInfo.tenant);
+        }
         onSuccess();
         return;
       }
@@ -45,6 +49,17 @@ export default function ClaimAuthForm({ claimInfo, onSuccess, onError }: ClaimAu
       // 実際の秘密鍵検証（Firestoreから確認）
       // ここでFirestoreのsecretKeysコレクションをチェック
       // 現在は開発用のため、基本的な検証のみ
+      
+      // テナント情報を保存（claimInfoから取得）
+      if (claimInfo?.tenant) {
+        localStorage.setItem('pendingTenant', claimInfo.tenant);
+        sessionStorage.setItem('pendingTenant', claimInfo.tenant);
+      }
+      
+      // LP経由で来たことを示すフラグを設定
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('fromClaim', 'true');
+      }
       
       onSuccess();
     } catch (error) {
