@@ -89,8 +89,9 @@ function CreateMemoryPageContent() {
   const [devPassword, setDevPassword] = useState('');
   const [devPasswordError, setDevPasswordError] = useState<string | null>(null);
   // 開発モードの判定（クライアントサイドでも動作するように）
+  // 本番環境でも開発用パスワード認証を許可
   const isDevMode = typeof window !== 'undefined' 
-    ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || process.env.NODE_ENV === 'development')
+    ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.includes('web.app') || process.env.NODE_ENV === 'development')
     : process.env.NODE_ENV === 'development';
   
   // 開発用認証状態を初期値からチェック（sessionStorageから直接読み込む）
@@ -441,35 +442,35 @@ function CreateMemoryPageContent() {
   // 認証チェック：認証されていない場合はエラーを表示
   // 開発環境では開発用パスワード認証を表示
   if (!authBypass && !isAuthenticated && !isDevAuthenticated) {
-    // 開発環境でパスワードフォームを表示
-    if (isDevMode && showDevPasswordForm) {
+    // パスワードフォームを表示
+    if (showDevPasswordForm) {
       return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-600 to-cyan-600 p-4">
-          <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full">
-            <h2 className="text-2xl font-bold text-gray-900 mb-4 text-center">開発用認証</h2>
-            <p className="text-gray-600 text-sm mb-6 text-center">
-              開発環境でのみ使用可能です。パスワードを入力してください。
+        <div className="min-h-screen flex items-center justify-center bg-[#000f24] p-4">
+          <div className="bg-[#1a1a1a] rounded-2xl border border-white/10 shadow-xl p-8 max-w-md w-full">
+            <h2 className="text-2xl font-bold text-white mb-4 text-center">開発用認証</h2>
+            <p className="text-white/70 text-sm mb-6 text-center">
+              パスワードを入力してください。
             </p>
             <form onSubmit={handleDevPasswordSubmit} className="space-y-4">
               <div>
-                <Label htmlFor="devPassword" className="text-gray-700">パスワード</Label>
+                <Label htmlFor="devPassword" className="text-white">パスワード</Label>
                 <Input
                   id="devPassword"
                   type="password"
                   value={devPassword}
                   onChange={(e) => setDevPassword(e.target.value)}
                   placeholder="開発用パスワード"
-                  className="mt-1"
+                  className="mt-1 bg-[#2a2a2a] border-white/20 text-white"
                   autoFocus
                 />
                 {devPasswordError && (
-                  <p className="text-red-600 text-sm mt-2">{devPasswordError}</p>
+                  <p className="text-red-400 text-sm mt-2">{devPasswordError}</p>
                 )}
               </div>
               <div className="flex gap-2">
                 <Button
                   type="submit"
-                  className="flex-1"
+                  className="flex-1 bg-[#08af86] hover:bg-[#07a078] text-white"
                   disabled={!devPassword}
                 >
                   認証
@@ -481,14 +482,15 @@ function CreateMemoryPageContent() {
                     setShowDevPasswordForm(false);
                     router.push('/');
                   }}
+                  className="border-white/20 text-white hover:bg-white/10"
                 >
                   キャンセル
                 </Button>
               </div>
             </form>
-            <div className="mt-6 pt-6 border-t border-gray-200">
-              <p className="text-xs text-gray-500 text-center">
-                開発用パスワード: <span className="font-mono font-semibold">dev1234</span>
+            <div className="mt-6 pt-6 border-t border-white/10">
+              <p className="text-xs text-white/50 text-center">
+                開発用パスワード: <span className="font-mono font-semibold text-[#08af86]">dev1234</span>
               </p>
             </div>
           </div>
@@ -496,46 +498,29 @@ function CreateMemoryPageContent() {
       );
     }
     
-    // 開発環境ではパスワードフォームへのボタンを表示
-    if (isDevMode) {
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-600 to-cyan-600 p-4">
-          <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
-            <p className="text-red-600 mb-4">認証が必要です</p>
-            <p className="text-gray-600 text-sm mb-4">
-              このページにアクセスするには、LP経由の認証リンクからアクセスする必要があります。
-            </p>
-            <div className="space-y-2">
-              <Button 
-                onClick={() => setShowDevPasswordForm(true)}
-                className="w-full bg-blue-600 hover:bg-blue-700"
-              >
-                開発用パスワードで認証
-              </Button>
-              <Button 
-                onClick={() => router.push('/')} 
-                variant="outline"
-                className="w-full"
-              >
-                トップページに戻る
-              </Button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-    
-    // 本番環境では従来通りエラーメッセージを表示
+    // パスワードフォームへのボタンを表示
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-600 to-cyan-600 p-4">
-        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
-          <p className="text-red-600 mb-4">認証が必要です</p>
-          <p className="text-gray-600 text-sm mb-4">
+      <div className="min-h-screen flex items-center justify-center bg-[#000f24] p-4">
+        <div className="bg-[#1a1a1a] rounded-2xl border border-white/10 shadow-xl p-8 max-w-md w-full text-center">
+          <p className="text-red-400 mb-4 font-semibold">認証が必要です</p>
+          <p className="text-white/70 text-sm mb-6">
             このページにアクセスするには、LP経由の認証リンクからアクセスする必要があります。
           </p>
-          <Button onClick={() => router.push('/')} className="w-full">
-            トップページに戻る
-          </Button>
+          <div className="space-y-2">
+            <Button 
+              onClick={() => setShowDevPasswordForm(true)}
+              className="w-full bg-[#08af86] hover:bg-[#07a078] text-white"
+            >
+              開発用パスワードで認証
+            </Button>
+            <Button 
+              onClick={() => router.push('/')} 
+              variant="outline"
+              className="w-full border-white/20 text-white hover:bg-white/10"
+            >
+              トップページに戻る
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -546,35 +531,35 @@ function CreateMemoryPageContent() {
   // 開発用パスワード認証済みの場合も許可
   // 既存メモリの編集（memoryIdがある場合）は認証済みであれば許可
   if (!memoryId && !isAdmin && !isFromClaim && !authBypass && !isDevAuthenticated) {
-    // 開発環境では開発用パスワード認証を表示
-    if (isDevMode && showDevPasswordForm) {
+    // パスワードフォームを表示
+    if (showDevPasswordForm) {
       return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-600 to-cyan-600 p-4">
-          <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full">
-            <h2 className="text-2xl font-bold text-gray-900 mb-4 text-center">開発用認証</h2>
-            <p className="text-gray-600 text-sm mb-6 text-center">
-              開発環境でのみ使用可能です。パスワードを入力してください。
+        <div className="min-h-screen flex items-center justify-center bg-[#000f24] p-4">
+          <div className="bg-[#1a1a1a] rounded-2xl border border-white/10 shadow-xl p-8 max-w-md w-full">
+            <h2 className="text-2xl font-bold text-white mb-4 text-center">開発用認証</h2>
+            <p className="text-white/70 text-sm mb-6 text-center">
+              パスワードを入力してください。
             </p>
             <form onSubmit={handleDevPasswordSubmit} className="space-y-4">
               <div>
-                <Label htmlFor="devPassword" className="text-gray-700">パスワード</Label>
+                <Label htmlFor="devPassword" className="text-white">パスワード</Label>
                 <Input
                   id="devPassword"
                   type="password"
                   value={devPassword}
                   onChange={(e) => setDevPassword(e.target.value)}
                   placeholder="開発用パスワード"
-                  className="mt-1"
+                  className="mt-1 bg-[#2a2a2a] border-white/20 text-white"
                   autoFocus
                 />
                 {devPasswordError && (
-                  <p className="text-red-600 text-sm mt-2">{devPasswordError}</p>
+                  <p className="text-red-400 text-sm mt-2">{devPasswordError}</p>
                 )}
               </div>
               <div className="flex gap-2">
                 <Button
                   type="submit"
-                  className="flex-1"
+                  className="flex-1 bg-[#08af86] hover:bg-[#07a078] text-white"
                   disabled={!devPassword}
                 >
                   認証
@@ -586,14 +571,15 @@ function CreateMemoryPageContent() {
                     setShowDevPasswordForm(false);
                     router.push('/');
                   }}
+                  className="border-white/20 text-white hover:bg-white/10"
                 >
                   キャンセル
                 </Button>
               </div>
             </form>
-            <div className="mt-6 pt-6 border-t border-gray-200">
-              <p className="text-xs text-gray-500 text-center">
-                開発用パスワード: <span className="font-mono font-semibold">dev1234</span>
+            <div className="mt-6 pt-6 border-t border-white/10">
+              <p className="text-xs text-white/50 text-center">
+                開発用パスワード: <span className="font-mono font-semibold text-[#08af86]">dev1234</span>
               </p>
             </div>
           </div>
@@ -601,12 +587,11 @@ function CreateMemoryPageContent() {
       );
     }
     
-    // 開発環境ではパスワードフォームへのボタンを表示
-    if (isDevMode) {
-      return (
-        <div className="min-h-screen bg-[#0f0f0f] text-white p-4">
-          <div className="max-w-4xl mx-auto">
-            <div className="bg-[#1a1a1a] rounded-2xl border border-white/10 p-6 mb-6">
+    // パスワードフォームへのボタンを表示
+    return (
+      <div className="min-h-screen bg-[#000f24] text-white p-4">
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-[#1a1a1a] rounded-2xl border border-white/10 p-6 mb-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-bold text-white">新規作成はできません</h2>
               </div>
@@ -620,7 +605,7 @@ function CreateMemoryPageContent() {
               <div className="flex gap-4">
                 <Button
                   onClick={() => setShowDevPasswordForm(true)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                  className="bg-[#08af86] hover:bg-[#07a078] text-white"
                 >
                   開発用パスワードで認証
                 </Button>
@@ -645,44 +630,6 @@ function CreateMemoryPageContent() {
           </div>
         </div>
       );
-    }
-    
-    // 本番環境では従来通りエラーメッセージを表示
-    return (
-      <div className="min-h-screen bg-[#0f0f0f] text-white p-4">
-        <div className="max-w-4xl mx-auto">
-          <div className="bg-[#1a1a1a] rounded-2xl border border-white/10 p-6 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-2xl font-bold text-white">新規作成はできません</h2>
-            </div>
-            <p className="text-white/80 mb-6">
-              新しい想い出ページは、購入完了後の認証リンク（LP経由）からのみ作成できます。
-              <br />
-              <span className="text-white/60 text-sm">
-                直接URLからアクセスして新規作成することはできません。
-              </span>
-            </p>
-            <div className="flex gap-4">
-              <Button
-                onClick={() => router.push('/')}
-                className="bg-white text-gray-900 hover:bg-gray-100"
-              >
-                トップページに戻る
-              </Button>
-              {existingMemories.length > 0 && (
-                <Button
-                  onClick={() => setShowExistingMemories(true)}
-                  variant="outline"
-                  className="border-white/20 text-white hover:bg-white/10"
-                >
-                  既存の想い出ページを編集
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
   }
 
   // 既存の想い出ページがある場合の選択画面（エンドユーザー向け、管理者は表示しない）
