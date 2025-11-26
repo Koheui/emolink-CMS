@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { updateOrder, createShippingInfo, updateShippingInfo } from '@/lib/firestore';
+import { createShippingInfo, updateShippingInfo } from '@/lib/firestore';
 import { Order, ShippingInfo } from '@/types';
 import { useSecretKeyAuth } from '@/contexts/secret-key-auth-context';
 
@@ -72,18 +72,19 @@ export default function ShippingAddressForm({ order, shippingInfo, onAddressUpda
     setSuccess(null);
 
     try {
-      // 1. 注文の住所情報を更新
-      await updateOrder(order.id, {
-        shippingAddress: {
-          postalCode: formData.postalCode,
-          prefecture: formData.prefecture,
-          city: formData.city,
-          address1: formData.address1,
-          address2: formData.address2,
-          name: formData.name,
-          phone: formData.phone,
-        }
-      });
+      // 1. 注文の住所情報を更新（v3.3仕様により、クライアント側からの更新は不要）
+      // 注文ステータスの更新はNFC Writerアプリで行われます
+      // await updateOrder(order.id, {
+      //   shippingAddress: {
+      //     postalCode: formData.postalCode,
+      //     prefecture: formData.prefecture,
+      //     city: formData.city,
+      //     address1: formData.address1,
+      //     address2: formData.address2,
+      //     name: formData.name,
+      //     phone: formData.phone,
+      //   }
+      // });
 
       // 2. 配送情報を更新または作成
       if (shippingInfo) {

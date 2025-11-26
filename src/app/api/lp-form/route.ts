@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
     }
 
     // reCAPTCHA検証（開発環境ではスキップ）
+    let recaptchaScore = 0.5; // デフォルトスコア
     if (process.env.NODE_ENV !== 'development') {
       if (!recaptchaToken || recaptchaToken === 'dev-token') {
         return NextResponse.json(
@@ -48,7 +49,56 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
-      // TODO: 実際のreCAPTCHA検証を実装
+      
+      // reCAPTCHA検証を実行
+      const recaptchaSecret = process.env.RECAPTCHA_SECRET;
+      if (!recaptchaSecret) {
+        console.warn('RECAPTCHA_SECRET is not set, skipping reCAPTCHA verification');
+      } else {
+        try {
+          const verifyUrl = 'https://www.google.com/recaptcha/api/siteverify';
+          const verifyResponse = await fetch(verifyUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+              secret: recaptchaSecret,
+              response: recaptchaToken,
+              remoteip: request.headers.get('x-forwarded-for') || request.ip || '',
+            }),
+          });
+          
+          const verifyData = await verifyResponse.json();
+          
+          if (!verifyData.success) {
+            return NextResponse.json(
+              { error: 'reCAPTCHA verification failed', details: verifyData['error-codes'] },
+              { status: 400 }
+            );
+          }
+          
+          // スコアを取得（v3の場合）
+          recaptchaScore = verifyData.score || 0.5;
+          
+          // スコアが0.5未満の場合は拒否
+          if (recaptchaScore < 0.5) {
+            return NextResponse.json(
+              { error: 'reCAPTCHA score too low', score: recaptchaScore },
+              { status: 400 }
+            );
+          }
+        } catch (error) {
+          console.error('reCAPTCHA verification error:', error);
+          return NextResponse.json(
+            { error: 'reCAPTCHA verification error' },
+            { status: 500 }
+          );
+        }
+      }
+    } else {
+      // 開発環境ではdev-tokenの場合にスコア1.0を設定
+      recaptchaScore = recaptchaToken === 'dev-token' ? 1.0 : 0.5;
     }
 
     // 1. claimRequestsに保存
@@ -60,7 +110,7 @@ export async function POST(request: NextRequest) {
       origin,
       ip: request.headers.get('x-forwarded-for') || request.ip || 'unknown',
       ua: request.headers.get('user-agent') || 'unknown',
-      recaptchaScore: recaptchaToken === 'dev-token' ? 1.0 : 0.5,
+      recaptchaScore: recaptchaScore,
       status: 'pending',
       source: 'manual_entry', // BtoBでの手動入力
       createdAt: serverTimestamp(),

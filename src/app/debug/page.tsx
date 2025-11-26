@@ -6,12 +6,13 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2, Database, Mail, Shield } from 'lucide-react';
-import { getClaimRequestById } from '@/lib/firestore';
+import { getClaimRequestById, getClaimRequestsByTenant } from '@/lib/firestore';
+import { ClaimRequest } from '@/types';
 
 export default function DebugPage() {
   const { user, loading, currentTenant } = useAuth();
   const router = useRouter();
-  const [claimRequests, setClaimRequests] = useState<any[]>([]);
+  const [claimRequests, setClaimRequests] = useState<ClaimRequest[]>([]);
   const [loadingClaims, setLoadingClaims] = useState(false);
 
   useEffect(() => {
@@ -23,9 +24,15 @@ export default function DebugPage() {
   const loadClaimRequests = async () => {
     setLoadingClaims(true);
     try {
-      // 簡易的なclaimRequests取得（実際の実装では適切なクエリを使用）
+      if (!currentTenant || currentTenant === 'unknown') {
+        console.error('Tenant is not available');
+        return;
+      }
+      
       console.log('Loading claim requests for tenant:', currentTenant);
-      // TODO: 実際のclaimRequests取得を実装
+      const requests = await getClaimRequestsByTenant(currentTenant);
+      setClaimRequests(requests);
+      console.log(`Loaded ${requests.length} claim requests`);
     } catch (error) {
       console.error('Error loading claim requests:', error);
     } finally {
@@ -130,6 +137,69 @@ export default function DebugPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* ClaimRequests一覧 */}
+          {claimRequests.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>ClaimRequests一覧</CardTitle>
+                <CardDescription>
+                  {claimRequests.length}件のリクエスト
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {claimRequests.map((request) => (
+                    <div
+                      key={request.id}
+                      className="p-4 border rounded-lg bg-gray-50"
+                    >
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <p className="font-medium text-gray-500">ID</p>
+                          <p className="text-gray-900">{request.id.slice(0, 8)}...</p>
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-500">Email</p>
+                          <p className="text-gray-900">{request.email}</p>
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-500">ステータス</p>
+                          <p className="text-gray-900">{request.status}</p>
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-500">reCAPTCHAスコア</p>
+                          <p className="text-gray-900">{request.recaptchaScore.toFixed(2)}</p>
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-500">作成日時</p>
+                          <p className="text-gray-900">
+                            {request.createdAt.toLocaleString('ja-JP')}
+                          </p>
+                        </div>
+                        {request.sentAt && (
+                          <div>
+                            <p className="font-medium text-gray-500">送信日時</p>
+                            <p className="text-gray-900">
+                              {request.sentAt.toLocaleString('ja-JP')}
+                            </p>
+                          </div>
+                        )}
+                        {request.claimedAt && (
+                          <div>
+                            <p className="font-medium text-gray-500">クレーム日時</p>
+                            <p className="text-gray-900">
+                              {request.claimedAt.toLocaleString('ja-JP')}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>

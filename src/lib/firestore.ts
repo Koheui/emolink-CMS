@@ -300,6 +300,30 @@ export async function updateClaimRequest(requestId: string, updates: Partial<Cla
   });
 }
 
+export async function getClaimRequestsByTenant(tenant: string): Promise<ClaimRequest[]> {
+  const currentTenant = getCurrentTenant();
+  if (tenant !== currentTenant) {
+    throw new Error('Access denied: Tenant mismatch');
+  }
+  
+  const q = query(
+    claimRequestsCollection,
+    where('tenant', '==', tenant),
+    orderBy('createdAt', 'desc'),
+    limit(100) // 最大100件まで取得
+  );
+  
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data(),
+    createdAt: doc.data().createdAt?.toDate() || new Date(),
+    updatedAt: doc.data().updatedAt?.toDate() || new Date(),
+    sentAt: doc.data().sentAt?.toDate(),
+    claimedAt: doc.data().claimedAt?.toDate(),
+  })) as ClaimRequest[];
+}
+
 // Orders (Read only for client)
 export const ordersCollection = collection(db, 'orders');
 
@@ -348,23 +372,27 @@ export async function getOrderById(orderId: string): Promise<Order | null> {
   return order;
 }
 
-export async function updateOrder(orderId: string, updates: Partial<Order>): Promise<void> {
-  const docRef = doc(db, 'orders', orderId);
-  
-  // 既存データのテナント検証
-  const existingDoc = await getDoc(docRef);
-  if (existingDoc.exists()) {
-    const currentTenant = getCurrentTenant();
-    if (existingDoc.data().tenant !== currentTenant) {
-      throw new Error('Access denied: Tenant mismatch');
-    }
-  }
-  
-  await updateDoc(docRef, {
-    ...updates,
-    updatedAt: serverTimestamp(),
-  });
-}
+// 注文更新は Functions API 経由のみ（specification v3.3に準拠）
+// フロントからの直接更新は禁止されているため、この関数は削除
+// 注文の更新は専用のNFC WriterアプリまたはFunctions API経由で行う
+// 
+// export async function updateOrder(orderId: string, updates: Partial<Order>): Promise<void> {
+//   const docRef = doc(db, 'orders', orderId);
+//   
+//   // 既存データのテナント検証
+//   const existingDoc = await getDoc(docRef);
+//   if (existingDoc.exists()) {
+//     const currentTenant = getCurrentTenant();
+//     if (existingDoc.data().tenant !== currentTenant) {
+//       throw new Error('Access denied: Tenant mismatch');
+//     }
+//   }
+//   
+//   await updateDoc(docRef, {
+//     ...updates,
+//     updatedAt: serverTimestamp(),
+//   });
+// }
 
 // Acrylic Photos
 export const acrylicPhotosCollection = collection(db, 'acrylicPhotos');

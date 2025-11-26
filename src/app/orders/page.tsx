@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { getOrdersByTenant, getAcrylicPhotosByOrder, getShippingInfoByOrder, updateOrder } from '@/lib/firestore';
+import { getOrdersByTenant, getAcrylicPhotosByOrder, getShippingInfoByOrder } from '@/lib/firestore';
 import { Order, AcrylicPhoto, ShippingInfo, PRODUCT_TYPE_NAMES } from '@/types';
 import { useSecretKeyAuth } from '@/contexts/secret-key-auth-context';
 import { useRouter } from 'next/navigation';
@@ -12,7 +12,7 @@ import AcrylicPhotoUpload from '@/components/acrylic-photo-upload';
 import ShippingAddressForm from '@/components/shipping-address-form';
 
 export default function OrderManagementDashboard() {
-  const { currentUser, isAuthenticated, loading } = useSecretKeyAuth();
+  const { currentUser, isAuthenticated, loading, currentTenant } = useSecretKeyAuth();
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -36,8 +36,13 @@ export default function OrderManagementDashboard() {
   const loadOrders = async () => {
     try {
       setIsLoading(true);
-      // テナント情報を取得（現在は固定値を使用）
-      const tenant = 'futurestudio'; // TODO: 動的に取得
+      // テナント情報を動的に取得
+      const tenant = currentUser?.tenant || currentTenant || 'futurestudio';
+      if (tenant === 'unknown') {
+        setError('テナント情報が取得できませんでした。');
+        setIsLoading(false);
+        return;
+      }
       const ordersData = await getOrdersByTenant(tenant);
       setOrders(ordersData);
     } catch (error) {
@@ -65,18 +70,9 @@ export default function OrderManagementDashboard() {
     }
   };
 
-  const updateOrderStatus = async (orderId: string, status: 'payment_completed' | 'photo_upload_pending' | 'production_started' | 'production_completed' | 'shipped' | 'delivered') => {
-    try {
-      await updateOrder(orderId, { orderStatus: status });
-      await loadOrders(); // リストを再読み込み
-      if (selectedOrder?.id === orderId) {
-        await loadOrderDetails({ ...selectedOrder, orderStatus: status });
-      }
-    } catch (error) {
-      console.error('Error updating order status:', error);
-      setError('注文ステータスの更新中にエラーが発生しました。');
-    }
-  };
+  // 注文ステータス更新は Functions API 経由のみ（specification v3.3に準拠）
+  // フロントからの直接更新は禁止されているため、この関数は削除
+  // 注文ステータスの更新は専用のNFC WriterアプリまたはFunctions API経由で行う
 
   const getStatusBadge = (status: string) => {
     const statusConfig = {
@@ -275,7 +271,8 @@ export default function OrderManagementDashboard() {
                         order={selectedOrder}
                         onPhotoUploaded={(photo) => {
                           setPhotos([photo, ...photos]);
-                          updateOrderStatus(selectedOrder.id, 'production_started');
+                          // 注文ステータス更新は Functions API 経由のみ（specification v3.3に準拠）
+                          // 写真アップロード後は自動的にステータスが更新される想定
                         }}
                       />
                     </CardContent>
@@ -341,37 +338,23 @@ export default function OrderManagementDashboard() {
                   </Card>
                 )}
 
-                {/* アクション */}
+                {/* 注文ステータス情報（参照のみ） */}
                 <Card>
                   <CardHeader>
-                    <CardTitle>注文アクション</CardTitle>
+                    <CardTitle>注文ステータス</CardTitle>
+                    <CardDescription>
+                      注文ステータスの更新は Functions API 経由のみ可能です（specification v3.3に準拠）
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="flex space-x-2">
-                      {selectedOrder.orderStatus === 'production_started' && (
-                        <Button
-                          onClick={() => updateOrderStatus(selectedOrder.id, 'production_completed')}
-                          variant="outline"
-                        >
-                          制作完了
-                        </Button>
-                      )}
-                      {selectedOrder.orderStatus === 'production_completed' && (
-                        <Button
-                          onClick={() => updateOrderStatus(selectedOrder.id, 'shipped')}
-                          variant="outline"
-                        >
-                          配送開始
-                        </Button>
-                      )}
-                      {selectedOrder.orderStatus === 'shipped' && (
-                        <Button
-                          onClick={() => updateOrderStatus(selectedOrder.id, 'delivered')}
-                          variant="outline"
-                        >
-                          配送完了
-                        </Button>
-                      )}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-gray-500">現在のステータス</span>
+                        <div>{getStatusBadge(selectedOrder.orderStatus || 'payment_completed')}</div>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">
+                        ステータス更新は専用のNFC WriterアプリまたはFunctions API経由で行います。
+                      </p>
                     </div>
                   </CardContent>
                 </Card>

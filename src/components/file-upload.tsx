@@ -59,7 +59,7 @@ export function FileUpload({ memoryId, ownerUid, onUploadComplete }: FileUploadP
         // AssetをFirestoreに保存
         const asset: Omit<Asset, 'id' | 'createdAt' | 'updatedAt'> = {
           memoryId,
-          ownerUid: ownerUid, // TODO: ユーザーIDを取得
+          ownerUid: ownerUid,
           name: uploadingFile.file.name,
           type: fileType,
           storagePath: uploadResult.path,

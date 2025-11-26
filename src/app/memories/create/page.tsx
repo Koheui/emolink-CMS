@@ -30,6 +30,7 @@ interface MediaBlock {
   visibility: 'public' | 'private';
   title?: string;
   description?: string;
+  isTopic?: boolean; // Topicsに表示するかどうか
   albumItems?: AlbumItem[];
 }
 
@@ -68,21 +69,31 @@ function CreateMemoryPageContent() {
   const [bio, setBio] = useState('');
   const [showEditBanner, setShowEditBanner] = useState(true);
   const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [profileImagePosition, setProfileImagePosition] = useState('center center');
+  const [profileImageScale, setProfileImageScale] = useState(1);
   const [coverImage, setCoverImage] = useState<string | null>(null);
   const [coverImagePosition, setCoverImagePosition] = useState('center center');
+  const [coverImageScale, setCoverImageScale] = useState(1);
   const [isDragging, setIsDragging] = useState(false);
+  const [isDraggingProfile, setIsDraggingProfile] = useState(false);
+  // ドラッグ開始時の位置を記録（写真を動かすため）
+  const [dragStartPos, setDragStartPos] = useState<{ x: number; y: number; posX: number; posY: number } | null>(null);
+  const [dragStartPosProfile, setDragStartPosProfile] = useState<{ x: number; y: number; posX: number; posY: number } | null>(null);
+  // ピンチ開始時の距離とスケールを記録
+  const [pinchStart, setPinchStart] = useState<{ distance: number; scale: number } | null>(null);
+  const [pinchStartProfile, setPinchStartProfile] = useState<{ distance: number; scale: number } | null>(null);
   const [showUploadMenu, setShowUploadMenu] = useState(false);
   const [mediaBlocks, setMediaBlocks] = useState<MediaBlock[]>([]);
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [editingDescription, setEditingDescription] = useState(false);
-  const [editingBio, setEditingBio] = useState(false);
   const [showColorSettings, setShowColorSettings] = useState(false);
   const [accentColor, setAccentColor] = useState('#08af86');
   const [textColor, setTextColor] = useState('#ffffff');
   const [backgroundColor, setBackgroundColor] = useState('#000f24');
-  const [cardBackgroundColor, setCardBackgroundColor] = useState('#1a1a1a');
+  // エディットページの背景色とカード背景色は固定
+  const editPageBackgroundColor = '#000';
+  const editPageCardBackgroundColor = '#1a1a1a';
   const [titleFontSize, setTitleFontSize] = useState(35); // px単位
   const [bodyFontSize, setBodyFontSize] = useState(16); // px単位
+  const [topicsTitle, setTopicsTitle] = useState('Topics'); // Topicsセクションのタイトル
   
   // 開発用パスワード認証
   const [showDevPasswordForm, setShowDevPasswordForm] = useState(false);
@@ -156,7 +167,7 @@ function CreateMemoryPageContent() {
     setShowUploadMenu(false);
   };
   
-  const handleUpdateBlock = (id: string, field: 'title' | 'description', value: string) => {
+  const handleUpdateBlock = (id: string, field: 'title' | 'description' | 'isTopic', value: string | boolean) => {
     setMediaBlocks(prev => prev.map(block => 
       block.id === id ? { ...block, [field]: value } : block
     ));
@@ -283,6 +294,8 @@ function CreateMemoryPageContent() {
       const snapshot = await uploadBytes(storageRef, file);
       const downloadURL = await getDownloadURL(snapshot.ref);
       setProfileImage(downloadURL);
+      setProfileImagePosition('center center');
+      setProfileImageScale(1);
     } catch (err: any) {
       console.error('Upload error:', err);
       setError('アップロードに失敗しました');
@@ -298,6 +311,8 @@ function CreateMemoryPageContent() {
       const snapshot = await uploadBytes(storageRef, file);
       const downloadURL = await getDownloadURL(snapshot.ref);
       setCoverImage(downloadURL);
+      setCoverImagePosition('center center');
+      setCoverImageScale(1);
     } catch (err: any) {
       console.error('Upload error:', err);
       setError('カバー画像のアップロードに失敗しました');
@@ -344,18 +359,22 @@ function CreateMemoryPageContent() {
         description: description || '',
         bio: bio || '',
         profileImage: profileImage || null,
+        profileImagePosition: profileImagePosition,
+        profileImageScale: profileImageScale,
         coverImage: coverImage || null,
+        coverImagePosition: coverImagePosition,
+        coverImageScale: coverImageScale,
         blocks: mediaBlocks,
         colors: {
           accent: accentColor,
           text: textColor,
           background: backgroundColor,
-          cardBackground: cardBackgroundColor,
         },
         fontSizes: {
           title: titleFontSize,
           body: bodyFontSize,
         },
+        topicsTitle: topicsTitle,
         status: 'draft',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -367,15 +386,17 @@ function CreateMemoryPageContent() {
         description: description || '',
         bio: bio || '',
         profileImage: profileImage || null,
+        profileImagePosition: profileImagePosition,
+        profileImageScale: profileImageScale,
         coverImage: coverImage || null,
         coverImagePosition: coverImagePosition,
+        coverImageScale: coverImageScale,
         blocks: mediaBlocks,
-        colors: {
-          accent: accentColor,
-          text: textColor,
-          background: backgroundColor,
-          cardBackground: cardBackgroundColor,
-        },
+                  colors: {
+                    accent: accentColor,
+                    text: textColor,
+                    background: backgroundColor,
+                  },
         fontSizes: {
           title: titleFontSize,
           body: bodyFontSize,
@@ -470,7 +491,7 @@ function CreateMemoryPageContent() {
               <div className="flex gap-2">
                 <Button
                   type="submit"
-                  className="flex-1 bg-[#08af86] hover:bg-[#07a078] text-white"
+                  className="flex-1 bg-[#08af86] hover:bg-[#07a078] !text-white"
                   disabled={!devPassword}
                 >
                   認証
@@ -482,7 +503,7 @@ function CreateMemoryPageContent() {
                     setShowDevPasswordForm(false);
                     router.push('/');
                   }}
-                  className="border-white/20 text-white hover:bg-white/10"
+                  className="border-white/20 !text-white hover:bg-white/10"
                 >
                   キャンセル
                 </Button>
@@ -516,7 +537,7 @@ function CreateMemoryPageContent() {
             <Button 
               onClick={() => router.push('/')} 
               variant="outline"
-              className="w-full border-white/20 text-white hover:bg-white/10"
+              className="w-full border-white/20 text-black hover:bg-white/10"
             >
               トップページに戻る
             </Button>
@@ -559,7 +580,7 @@ function CreateMemoryPageContent() {
               <div className="flex gap-2">
                 <Button
                   type="submit"
-                  className="flex-1 bg-[#08af86] hover:bg-[#07a078] text-white"
+                  className="flex-1 bg-[#08af86] hover:bg-[#07a078] !text-white"
                   disabled={!devPassword}
                 >
                   認証
@@ -571,7 +592,7 @@ function CreateMemoryPageContent() {
                     setShowDevPasswordForm(false);
                     router.push('/');
                   }}
-                  className="border-white/20 text-white hover:bg-white/10"
+                  className="border-white/20 !text-white hover:bg-white/10"
                 >
                   キャンセル
                 </Button>
@@ -589,7 +610,7 @@ function CreateMemoryPageContent() {
     
     // パスワードフォームへのボタンを表示
     return (
-      <div className="min-h-screen bg-[#000f24] text-white p-4">
+      <div className="min-h-screen text-white p-6 sm:p-8 md:p-10" style={{ backgroundColor: editPageBackgroundColor }}>
         <div className="max-w-4xl mx-auto">
           <div className="bg-[#1a1a1a] rounded-2xl border border-white/10 p-6 mb-6">
               <div className="flex items-center justify-between mb-4">
@@ -612,7 +633,7 @@ function CreateMemoryPageContent() {
                 <Button
                   onClick={() => router.push('/')}
                   variant="outline"
-                  className="border-white/20 text-white hover:bg-white/10"
+                  className="border-white/20 text-black hover:bg-white/10"
                 >
                   トップページに戻る
                 </Button>
@@ -635,7 +656,7 @@ function CreateMemoryPageContent() {
   // 既存の想い出ページがある場合の選択画面（エンドユーザー向け、管理者は表示しない）
   if (!isAdmin && existingMemories.length > 0 && !showExistingMemories && !memoryId) {
     return (
-      <div className="min-h-screen bg-[#0f0f0f] text-white p-4">
+      <div className="min-h-screen bg-[#0f0f0f] text-white p-4 sm:p-6 md:p-8">
         <div className="max-w-4xl mx-auto">
           <div className="bg-[#1a1a1a] rounded-2xl border border-white/10 p-6 mb-6">
             <div className="flex items-center justify-between mb-4">
@@ -698,7 +719,7 @@ function CreateMemoryPageContent() {
     <div className="min-h-screen bg-[#0f0f0f] text-white">
       {/* 編集バナー */}
       {showEditBanner && (
-        <div className="bg-[#1a1a1a] border-b border-white/10 p-4 flex items-center justify-between">
+        <div className="bg-[#1a1a1a] border-b border-white/10 p-4 sm:p-6 flex items-center justify-between">
           <p className="text-white text-sm">エディットページ</p>
           <div className="flex items-center gap-3">
             <button
@@ -716,19 +737,22 @@ function CreateMemoryPageContent() {
                   description,
                   bio,
                   profileImage,
+                  profileImagePosition,
+                  profileImageScale,
                   coverImage,
                   coverImagePosition,
+                  coverImageScale,
                   blocks: mediaBlocks,
-                  colors: {
-                    accent: accentColor,
-                    text: textColor,
-                    background: backgroundColor,
-                    cardBackground: cardBackgroundColor,
-                  },
-                  fontSizes: {
-                    title: titleFontSize,
-                    body: bodyFontSize,
-                  },
+        colors: {
+          accent: accentColor,
+          text: textColor,
+          background: backgroundColor,
+        },
+        fontSizes: {
+          title: titleFontSize,
+          body: bodyFontSize,
+        },
+        topicsTitle: topicsTitle,
                 };
                 localStorage.setItem('memory-preview', JSON.stringify(previewData));
                 window.open('/public/preview', '_blank');
@@ -746,7 +770,7 @@ function CreateMemoryPageContent() {
               }}
             >
               <ExternalLink className="w-4 h-4" />
-              公開ページを確認
+              プレビュー
             </button>
           </div>
         </div>
@@ -754,9 +778,254 @@ function CreateMemoryPageContent() {
 
       {/* 設定パネル */}
       {showColorSettings && (
-        <div className="bg-[#1a1a1a] border-b border-white/10 p-4">
+        <div className="bg-[#1a1a1a] border-b border-white/10 p-4 sm:p-6">
           <div className="max-w-2xl mx-auto space-y-4">
             <h3 className="text-white font-medium mb-3">設定</h3>
+            
+            {/* プロフィール写真、タイトル、説明文、プロフィール */}
+            <div className="space-y-4 pb-4 border-b border-white/10">
+              <h4 className="text-white font-medium mb-3">基本情報</h4>
+              
+              {/* プロフィール写真 */}
+              <div>
+                <label className="block text-white/80 text-sm mb-2">プロフィール写真</label>
+                <div className="relative w-full max-w-xs aspect-square rounded-full overflow-hidden border border-white/10 mb-4">
+                  {profileImage ? (
+                    <>
+                      <img 
+                        src={profileImage} 
+                        alt="プロフィール" 
+                        className="w-full h-full object-cover select-none touch-none"
+                        style={{ 
+                          objectPosition: profileImagePosition,
+                          transform: `scale(${profileImageScale})`,
+                          cursor: isDraggingProfile ? 'grabbing' : 'grab',
+                          userSelect: 'none',
+                          WebkitUserSelect: 'none',
+                          WebkitTouchCallout: 'none'
+                        }}
+                        onMouseDown={(e) => {
+                          // ボタンエリアでのドラッグ開始を防ぐ
+                          const target = e.target as HTMLElement;
+                          if (target.closest('button')) {
+                            return;
+                          }
+                          e.preventDefault();
+                          setIsDraggingProfile(true);
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const startX = e.clientX;
+                          const startY = e.clientY;
+                          // 現在のobjectPositionをパース（center centerの場合は50%として扱う）
+                          let posX = 50, posY = 50;
+                          if (profileImagePosition && profileImagePosition !== 'center center') {
+                            const parts = profileImagePosition.split(' ');
+                            posX = parseFloat(parts[0]) || 50;
+                            posY = parseFloat(parts[1]) || 50;
+                          }
+                          setDragStartPosProfile({
+                            x: startX,
+                            y: startY,
+                            posX: posX,
+                            posY: posY
+                          });
+                        }}
+                        onMouseMove={(e) => {
+                          if (isDraggingProfile && dragStartPosProfile) {
+                            e.preventDefault();
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            // 移動量を計算（ピクセル単位）
+                            const deltaX = e.clientX - dragStartPosProfile.x;
+                            const deltaY = e.clientY - dragStartPosProfile.y;
+                            // 移動量をパーセンテージに変換（写真のサイズを考慮）
+                            const deltaXPercent = (deltaX / rect.width) * 100;
+                            const deltaYPercent = (deltaY / rect.height) * 100;
+                            // 新しい位置を計算（写真を動かす方向に反転）
+                            const newX = dragStartPosProfile.posX - deltaXPercent;
+                            const newY = dragStartPosProfile.posY - deltaYPercent;
+                            setProfileImagePosition(`${newX}% ${newY}%`);
+                          }
+                        }}
+                        onMouseUp={() => {
+                          setIsDraggingProfile(false);
+                          setDragStartPosProfile(null);
+                        }}
+                        onMouseLeave={() => {
+                          setIsDraggingProfile(false);
+                          setDragStartPosProfile(null);
+                        }}
+                        onTouchStart={(e) => {
+                          // ボタンエリアでのドラッグ開始を防ぐ
+                          const target = e.target as HTMLElement;
+                          if (target.closest('button')) {
+                            return;
+                          }
+                          e.preventDefault();
+                          
+                          // 2本の指でピンチジェスチャー
+                          if (e.touches.length === 2) {
+                            const touch1 = e.touches[0];
+                            const touch2 = e.touches[1];
+                            const distance = Math.hypot(
+                              touch2.clientX - touch1.clientX,
+                              touch2.clientY - touch1.clientY
+                            );
+                            setPinchStartProfile({
+                              distance: distance,
+                              scale: profileImageScale
+                            });
+                            setIsDraggingProfile(false);
+                            setDragStartPosProfile(null);
+                          } else if (e.touches.length === 1) {
+                            // 1本の指でドラッグ
+                            setIsDraggingProfile(true);
+                            const touch = e.touches[0];
+                            const startX = touch.clientX;
+                            const startY = touch.clientY;
+                            // 現在のobjectPositionをパース（center centerの場合は50%として扱う）
+                            let posX = 50, posY = 50;
+                            if (profileImagePosition && profileImagePosition !== 'center center') {
+                              const parts = profileImagePosition.split(' ');
+                              posX = parseFloat(parts[0]) || 50;
+                              posY = parseFloat(parts[1]) || 50;
+                            }
+                            setDragStartPosProfile({
+                              x: startX,
+                              y: startY,
+                              posX: posX,
+                              posY: posY
+                            });
+                            setPinchStartProfile(null);
+                          }
+                        }}
+                        onTouchMove={(e) => {
+                          e.preventDefault();
+                          
+                          // 2本の指でピンチジェスチャー
+                          if (e.touches.length === 2 && pinchStartProfile) {
+                            const touch1 = e.touches[0];
+                            const touch2 = e.touches[1];
+                            const distance = Math.hypot(
+                              touch2.clientX - touch1.clientX,
+                              touch2.clientY - touch1.clientY
+                            );
+                            const scale = Math.max(0.5, Math.min(3, pinchStartProfile.scale * (distance / pinchStartProfile.distance)));
+                            setProfileImageScale(scale);
+                          } else if (e.touches.length === 1 && isDraggingProfile && dragStartPosProfile) {
+                            // 1本の指でドラッグ
+                            const touch = e.touches[0];
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            // 移動量を計算（ピクセル単位）
+                            const deltaX = touch.clientX - dragStartPosProfile.x;
+                            const deltaY = touch.clientY - dragStartPosProfile.y;
+                            // 移動量をパーセンテージに変換（写真のサイズを考慮）
+                            const deltaXPercent = (deltaX / rect.width) * 100;
+                            const deltaYPercent = (deltaY / rect.height) * 100;
+                            // 新しい位置を計算（写真を動かす方向に反転）
+                            const newX = dragStartPosProfile.posX - deltaXPercent;
+                            const newY = dragStartPosProfile.posY - deltaYPercent;
+                            setProfileImagePosition(`${newX}% ${newY}%`);
+                          }
+                        }}
+                        onTouchEnd={() => {
+                          setIsDraggingProfile(false);
+                          setDragStartPosProfile(null);
+                          setPinchStartProfile(null);
+                        }}
+                        onTouchCancel={() => {
+                          setIsDraggingProfile(false);
+                          setDragStartPosProfile(null);
+                          setPinchStartProfile(null);
+                        }}
+                      />
+                      <div className="absolute top-2 right-2 flex gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setProfileImagePosition('center center');
+                      setProfileImageScale(1);
+                          }}
+                          className="bg-blue-500/80 hover:bg-blue-500 rounded-full p-2 transition text-white text-xs"
+                          title="中央にリセット"
+                        >
+                          中央
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setProfileImage(null);
+                            setProfileImagePosition('center center');
+                      setProfileImageScale(1);
+                          }}
+                          className="bg-red-500/80 hover:bg-red-500 rounded-full p-2 transition"
+                        >
+                          <X className="w-4 h-4 text-white" />
+                        </button>
+                      </div>
+                      <div className="absolute bottom-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded pointer-events-none">
+                        ドラッグして表示位置を調整
+                      </div>
+                    </>
+                  ) : (
+                    <label className="w-full h-full bg-[#1a1a1a] flex flex-col items-center justify-center cursor-pointer hover:bg-[#2a2a2a] transition">
+                      <Camera className="w-12 h-12 text-white/50 mb-2" />
+                      <span className="text-white/60 text-sm">プロフィール写真を追加</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleProfileImageUpload(file);
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
+              
+              {/* タイトル */}
+              <div>
+                <label className="block text-white/80 text-sm mb-2">タイトル</label>
+                <textarea
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="タイトルを入力"
+                  className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/20 rounded-lg text-white text-sm resize-none"
+                  rows={2}
+                  onInput={(e) => {
+                    const target = e.currentTarget;
+                    target.style.height = 'auto';
+                    target.style.height = `${target.scrollHeight}px`;
+                  }}
+                />
+              </div>
+              
+              {/* 説明文 */}
+              <div>
+                <label className="block text-white/80 text-sm mb-2">説明文</label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="説明文を入力"
+                  className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/20 rounded-lg text-white text-sm resize-none"
+                  rows={3}
+                />
+              </div>
+              
+              {/* プロフィール */}
+              <div>
+                <label className="block text-white/80 text-sm mb-2">プロフィール</label>
+                <textarea
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                  placeholder="プロフィールを入力"
+                  className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/20 rounded-lg text-white text-sm resize-none"
+                  rows={3}
+                />
+              </div>
+            </div>
+            
+            {/* 色設定 */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-white/80 text-sm mb-2">アクセントカラー</label>
@@ -812,23 +1081,18 @@ function CreateMemoryPageContent() {
                   />
                 </div>
               </div>
+            </div>
+            <div className="mt-4 pt-4 border-t border-white/10">
+              <h4 className="text-white font-medium mb-3">Topics設定</h4>
               <div>
-                <label className="block text-white/80 text-sm mb-2">カード背景色</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={cardBackgroundColor}
-                    onChange={(e) => setCardBackgroundColor(e.target.value)}
-                    className="w-12 h-10 rounded cursor-pointer"
-                  />
-                  <input
-                    type="text"
-                    value={cardBackgroundColor}
-                    onChange={(e) => setCardBackgroundColor(e.target.value)}
-                    className="flex-1 px-3 py-2 bg-[#2a2a2a] border border-white/20 rounded-lg text-white text-sm"
-                    placeholder="#1a1a1a"
-                  />
-                </div>
+                <label className="block text-white/80 text-sm mb-2">Topicsセクションのタイトル</label>
+                <input
+                  type="text"
+                  value={topicsTitle}
+                  onChange={(e) => setTopicsTitle(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/20 rounded-lg text-white text-sm"
+                  placeholder="Topics"
+                />
               </div>
             </div>
             <div className="mt-4 pt-4 border-t border-white/10">
@@ -862,7 +1126,7 @@ function CreateMemoryPageContent() {
         </div>
       )}
       
-      <div className="p-4">
+      <div className="p-4 sm:p-6 md:p-8">
       {/* 既存の想い出ページがある場合のヘッダー（エンドユーザー向け） */}
       {!isAdmin && existingMemories.length > 0 && (
         <div className="max-w-2xl mx-auto mb-4">
@@ -940,7 +1204,7 @@ function CreateMemoryPageContent() {
       )}
       
       {/* カバー画像 */}
-      <div className="max-w-2xl mx-auto mb-6">
+      <div className="max-w-2xl mx-auto mb-6 px-6 sm:px-8">
         <div className="mb-2">
           <p className="text-white/60 text-sm">📱 縦長の写真を推奨します（スマートフォン表示に最適化）</p>
         </div>
@@ -953,6 +1217,7 @@ function CreateMemoryPageContent() {
                 className="w-full h-full object-cover select-none touch-none"
                 style={{ 
                   objectPosition: coverImagePosition,
+                  transform: `scale(${coverImageScale})`,
                   cursor: isDragging ? 'grabbing' : 'grab',
                   userSelect: 'none',
                   WebkitUserSelect: 'none',
@@ -966,25 +1231,45 @@ function CreateMemoryPageContent() {
                   }
                   e.preventDefault();
                   setIsDragging(true);
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const x = ((e.clientX - rect.left) / rect.width) * 100;
-                  const y = ((e.clientY - rect.top) / rect.height) * 100;
-                  setCoverImagePosition(`${x}% ${y}%`);
+                  const startX = e.clientX;
+                  const startY = e.clientY;
+                  // 現在のobjectPositionをパース（center centerの場合は50%として扱う）
+                  let posX = 50, posY = 50;
+                  if (coverImagePosition && coverImagePosition !== 'center center') {
+                    const parts = coverImagePosition.split(' ');
+                    posX = parseFloat(parts[0]) || 50;
+                    posY = parseFloat(parts[1]) || 50;
+                  }
+                  setDragStartPos({
+                    x: startX,
+                    y: startY,
+                    posX: posX,
+                    posY: posY
+                  });
                 }}
                 onMouseMove={(e) => {
-                  if (isDragging) {
+                  if (isDragging && dragStartPos) {
                     e.preventDefault();
                     const rect = e.currentTarget.getBoundingClientRect();
-                    const x = ((e.clientX - rect.left) / rect.width) * 100;
-                    const y = ((e.clientY - rect.top) / rect.height) * 100;
-                    setCoverImagePosition(`${x}% ${y}%`);
+                    // 移動量を計算（ピクセル単位）
+                    const deltaX = e.clientX - dragStartPos.x;
+                    const deltaY = e.clientY - dragStartPos.y;
+                    // 移動量をパーセンテージに変換（写真のサイズを考慮）
+                    const deltaXPercent = (deltaX / rect.width) * 100;
+                    const deltaYPercent = (deltaY / rect.height) * 100;
+                    // 新しい位置を計算（写真を動かす方向に反転）
+                    const newX = dragStartPos.posX - deltaXPercent;
+                    const newY = dragStartPos.posY - deltaYPercent;
+                    setCoverImagePosition(`${newX}% ${newY}%`);
                   }
                 }}
                 onMouseUp={() => {
                   setIsDragging(false);
+                  setDragStartPos(null);
                 }}
                 onMouseLeave={() => {
                   setIsDragging(false);
+                  setDragStartPos(null);
                 }}
                 onTouchStart={(e) => {
                   // ボタンエリアでのドラッグ開始を防ぐ
@@ -993,28 +1278,81 @@ function CreateMemoryPageContent() {
                     return;
                   }
                   e.preventDefault();
-                  setIsDragging(true);
-                  const touch = e.touches[0];
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const x = ((touch.clientX - rect.left) / rect.width) * 100;
-                  const y = ((touch.clientY - rect.top) / rect.height) * 100;
-                  setCoverImagePosition(`${x}% ${y}%`);
+                  
+                  // 2本の指でピンチジェスチャー
+                  if (e.touches.length === 2) {
+                    const touch1 = e.touches[0];
+                    const touch2 = e.touches[1];
+                    const distance = Math.hypot(
+                      touch2.clientX - touch1.clientX,
+                      touch2.clientY - touch1.clientY
+                    );
+                    setPinchStart({
+                      distance: distance,
+                      scale: coverImageScale
+                    });
+                    setIsDragging(false);
+                    setDragStartPos(null);
+                  } else if (e.touches.length === 1) {
+                    // 1本の指でドラッグ
+                    setIsDragging(true);
+                    const touch = e.touches[0];
+                    const startX = touch.clientX;
+                    const startY = touch.clientY;
+                    // 現在のobjectPositionをパース（center centerの場合は50%として扱う）
+                    let posX = 50, posY = 50;
+                    if (coverImagePosition && coverImagePosition !== 'center center') {
+                      const parts = coverImagePosition.split(' ');
+                      posX = parseFloat(parts[0]) || 50;
+                      posY = parseFloat(parts[1]) || 50;
+                    }
+                    setDragStartPos({
+                      x: startX,
+                      y: startY,
+                      posX: posX,
+                      posY: posY
+                    });
+                    setPinchStart(null);
+                  }
                 }}
                 onTouchMove={(e) => {
-                  if (isDragging) {
-                    e.preventDefault();
+                  e.preventDefault();
+                  
+                  // 2本の指でピンチジェスチャー
+                  if (e.touches.length === 2 && pinchStart) {
+                    const touch1 = e.touches[0];
+                    const touch2 = e.touches[1];
+                    const distance = Math.hypot(
+                      touch2.clientX - touch1.clientX,
+                      touch2.clientY - touch1.clientY
+                    );
+                    const scale = Math.max(0.5, Math.min(3, pinchStart.scale * (distance / pinchStart.distance)));
+                    setCoverImageScale(scale);
+                  } else if (e.touches.length === 1 && isDragging && dragStartPos) {
+                    // 1本の指でドラッグ
                     const touch = e.touches[0];
                     const rect = e.currentTarget.getBoundingClientRect();
-                    const x = ((touch.clientX - rect.left) / rect.width) * 100;
-                    const y = ((touch.clientY - rect.top) / rect.height) * 100;
-                    setCoverImagePosition(`${x}% ${y}%`);
+                    // 移動量を計算（ピクセル単位）
+                    const deltaX = touch.clientX - dragStartPos.x;
+                    const deltaY = touch.clientY - dragStartPos.y;
+                    // 移動量をパーセンテージに変換（写真のサイズを考慮）
+                    const deltaXPercent = (deltaX / rect.width) * 100;
+                    const deltaYPercent = (deltaY / rect.height) * 100;
+                    // 新しい位置を計算（写真を動かす方向に反転）
+                    const newX = dragStartPos.posX - deltaXPercent;
+                    const newY = dragStartPos.posY - deltaYPercent;
+                    setCoverImagePosition(`${newX}% ${newY}%`);
                   }
                 }}
                 onTouchEnd={() => {
                   setIsDragging(false);
+                  setDragStartPos(null);
+                  setPinchStart(null);
                 }}
                 onTouchCancel={() => {
                   setIsDragging(false);
+                  setDragStartPos(null);
+                  setPinchStart(null);
                 }}
               />
               <div className="absolute top-2 right-2 flex gap-2">
@@ -1022,6 +1360,7 @@ function CreateMemoryPageContent() {
                   onClick={(e) => {
                     e.stopPropagation();
                     setCoverImagePosition('center center');
+                    setCoverImageScale(1);
                   }}
                   className="bg-blue-500/80 hover:bg-blue-500 rounded-full p-2 transition text-white text-xs"
                   title="中央にリセット"
@@ -1033,6 +1372,7 @@ function CreateMemoryPageContent() {
                     e.stopPropagation();
                     setCoverImage(null);
                     setCoverImagePosition('center center');
+                    setCoverImageScale(1);
                   }}
                   className="bg-red-500/80 hover:bg-red-500 rounded-full p-2 transition"
                 >
@@ -1062,87 +1402,8 @@ function CreateMemoryPageContent() {
         </div>
       </div>
 
-      {/* ヘッダー部分：タイトルとbio */}
-      <div className="max-w-2xl mx-auto pt-8 pb-6">
-        <div className="flex flex-col items-center gap-4">
-          {/* タイトルとbio */}
-          <div className="text-center w-full">
-            {editingTitle ? (
-              <textarea
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="想い出タイトルを入力（改行可）"
-                className="w-full font-bold text-white border-white/20 text-center placeholder:text-white/40 resize-none"
-                style={{ 
-                  backgroundColor: cardBackgroundColor,
-                  fontSize: `${titleFontSize}px`,
-                  '--ring-color': accentColor 
-                } as React.CSSProperties}
-                autoFocus
-                rows={title.split('\n').length || 1}
-                onFocus={(e) => {
-                  e.currentTarget.style.borderColor = accentColor;
-                  e.currentTarget.style.boxShadow = `0 0 0 2px ${accentColor}`;
-                }}
-                onBlur={(e) => {
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                  e.currentTarget.style.boxShadow = 'none';
-                  setEditingTitle(false);
-                }}
-                onInput={(e) => {
-                  const target = e.currentTarget;
-                  target.style.height = 'auto';
-                  target.style.height = `${target.scrollHeight}px`;
-                }}
-              />
-            ) : (
-              <h1 
-                className="font-bold text-white cursor-pointer hover:opacity-90 mb-2 whitespace-pre-line"
-                style={{ fontSize: `${titleFontSize}px` }}
-                onClick={() => setEditingTitle(true)}
-              >
-                {title || <span className="text-white/40">想い出タイトルを入力（改行可）</span>}
-              </h1>
-            )}
-            
-            {editingBio ? (
-              <textarea
-                value={bio}
-                onChange={(e) => setBio(e.target.value)}
-                placeholder="プロフィール情報を入力"
-                className="w-full mt-2 text-white/80 border-white/20 rounded resize-none text-center placeholder:text-white/40"
-                style={{ 
-                  backgroundColor: cardBackgroundColor,
-                  fontSize: `${bodyFontSize}px`,
-                  '--ring-color': accentColor 
-                } as React.CSSProperties}
-                rows={2}
-                autoFocus
-                onFocus={(e) => {
-                  e.currentTarget.style.borderColor = accentColor;
-                  e.currentTarget.style.boxShadow = `0 0 0 2px ${accentColor}`;
-                }}
-                onBlur={(e) => {
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                  e.currentTarget.style.boxShadow = 'none';
-                  setEditingBio(false);
-                }}
-              />
-            ) : (
-              <p 
-                className="mt-2 text-white/80 cursor-pointer hover:opacity-90 whitespace-pre-wrap"
-                style={{ fontSize: `${bodyFontSize}px` }}
-                onClick={() => setEditingBio(true)}
-              >
-                {bio || <span className="text-white/40">プロフィール情報を入力</span>}
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-
       {/* コンテンツエリア */}
-      <div className="max-w-2xl mx-auto px-4">
+      <div className="max-w-2xl mx-auto px-6 sm:px-8">
         {/* 要素を追加 */}
         <div className="space-y-4 mb-6">
           {mediaBlocks.map((block) => (
@@ -1151,10 +1412,10 @@ function CreateMemoryPageContent() {
               className={`rounded-2xl p-4 ${
                 block.type === 'album' 
                   ? 'border-4'
-                  : 'border border-white/10'
+                  : ''
               }`}
               style={{
-                backgroundColor: cardBackgroundColor,
+                backgroundColor: editPageCardBackgroundColor,
                 ...(block.type === 'album' ? { borderColor: accentColor } : {})
               }}
             >
@@ -1247,6 +1508,24 @@ function CreateMemoryPageContent() {
                       <span className="text-white/70 text-sm">Add Photos</span>
                     </button>
                   </div>
+                  
+                  {/* Topicsトグル（アルバム） */}
+                  <div className="flex items-center gap-2 mb-3">
+                    <input
+                      type="checkbox"
+                      id={`topic-album-${block.id}`}
+                      checked={block.isTopic || false}
+                      onChange={(e) => handleUpdateBlock(block.id, 'isTopic', e.target.checked)}
+                      className="w-4 h-4 rounded cursor-pointer"
+                      style={{ accentColor: accentColor }}
+                    />
+                    <label
+                      htmlFor={`topic-album-${block.id}`}
+                      className="text-sm text-white/80 cursor-pointer"
+                    >
+                      Topicsに表示
+                    </label>
+                  </div>
                 </div>
               ) : block.type === 'text' ? (
                 // テキストブロック表示
@@ -1286,6 +1565,24 @@ function CreateMemoryPageContent() {
                       e.currentTarget.style.boxShadow = 'none';
                     }}
                   />
+                  
+                  {/* Topicsトグル（テキスト） */}
+                  <div className="flex items-center gap-2 mb-3">
+                    <input
+                      type="checkbox"
+                      id={`topic-text-${block.id}`}
+                      checked={block.isTopic || false}
+                      onChange={(e) => handleUpdateBlock(block.id, 'isTopic', e.target.checked)}
+                      className="w-4 h-4 rounded cursor-pointer"
+                      style={{ accentColor: accentColor }}
+                    />
+                    <label
+                      htmlFor={`topic-text-${block.id}`}
+                      className="text-sm text-white/80 cursor-pointer"
+                    >
+                      Topicsに表示
+                    </label>
+                  </div>
                 </>
               ) : (
                 // 通常のメディア表示
@@ -1345,6 +1642,26 @@ function CreateMemoryPageContent() {
                       e.currentTarget.style.boxShadow = 'none';
                     }}
                   />
+                  
+                  {/* Topicsトグル（画像、動画） */}
+                  {(block.type === 'image' || block.type === 'video') && (
+                    <div className="flex items-center gap-2 mb-3">
+                      <input
+                        type="checkbox"
+                        id={`topic-${block.id}`}
+                        checked={block.isTopic || false}
+                        onChange={(e) => handleUpdateBlock(block.id, 'isTopic', e.target.checked)}
+                        className="w-4 h-4 rounded cursor-pointer"
+                        style={{ accentColor: accentColor }}
+                      />
+                      <label
+                        htmlFor={`topic-${block.id}`}
+                        className="text-sm text-white/80 cursor-pointer"
+                      >
+                        Topicsに表示
+                      </label>
+                    </div>
+                  )}
                 </>
               )}
               

@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { createAcrylicPhoto, updateOrder } from '@/lib/firestore';
+import { createAcrylicPhoto } from '@/lib/firestore';
 import { uploadFile } from '@/lib/storage';
 import { Order, AcrylicPhoto } from '@/types';
 import { useSecretKeyAuth } from '@/contexts/secret-key-auth-context';
@@ -110,18 +110,19 @@ export default function AcrylicPhotoUpload({ order, onPhotoUploaded }: AcrylicPh
             uploadedAt: new Date(),
           };
 
-          // 4. 注文ステータスを更新
-          await updateOrder(order.id, {
-            orderStatus: 'photo_upload_pending',
-            acrylicStand: {
-              size: order.acrylicStand?.size,
-              photoUploaded: true,
-              photoUrl: uploadResult.url,
-              photoUploadedAt: new Date(),
-              productionStarted: order.acrylicStand?.productionStarted || false,
-              productionCompleted: order.acrylicStand?.productionCompleted || false,
-            }
-          });
+          // 4. 注文ステータスを更新（v3.3仕様により、クライアント側からの更新は不要）
+          // 注文ステータスの更新はNFC Writerアプリで行われます
+          // await updateOrder(order.id, {
+          //   orderStatus: 'photo_upload_pending',
+          //   acrylicStand: {
+          //     size: order.acrylicStand?.size,
+          //     photoUploaded: true,
+          //     photoUrl: uploadResult.url,
+          //     photoUploadedAt: new Date(),
+          //     productionStarted: order.acrylicStand?.productionStarted || false,
+          //     productionCompleted: order.acrylicStand?.productionCompleted || false,
+          //   }
+          // });
 
           setSuccess('写真のアップロードが完了しました。');
           onPhotoUploaded(photo);
