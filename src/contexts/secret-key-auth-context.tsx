@@ -1,199 +1,242 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState } from 'react';
-import { User } from '@/types';
+import { User, Staff } from '@/types';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import { getCurrentTenant } from '@/lib/security/tenant-validation';
 import { isAdminSecretKey } from '@/lib/secret-key-utils';
+import { getStaffByUid } from '@/lib/firestore';
 
 interface SecretKeyAuthContextType {
-  user: User | null;
-  currentUser: User | null; // 互換性のため
+  user: User | null; // エンドユーザー（顧客）
+  staff: Staff | null; // 店舗スタッフ（管理者）
+  currentUser: User | null; // 互換性のため（userまたはstaffの情報）
   loading: boolean;
   currentTenant: string;
   isAuthenticated: boolean;
-  isAdmin: boolean; // 管理者かどうか
+  isAdmin: boolean; // 管理者かどうか（staff !== null）
   isSuperAdmin: boolean; // スーパー管理者かどうか
-  authenticateWithSecretKey: (secretKey: string) => Promise<{ success: boolean; error?: string }>;
-  authenticateWithPassword: (password: string) => Promise<{ success: boolean; error?: string }>;
+  // 秘密鍵認証は廃止（JWTトークン認証リンク + メール/パスワードログインに変更）
+  // authenticateWithSecretKey: (secretKey: string) => Promise<{ success: boolean; error?: string }>;
+  // authenticateWithPassword: (password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
 }
 
 const SecretKeyAuthContext = createContext<SecretKeyAuthContextType>({
   user: null,
+  staff: null,
   currentUser: null,
   loading: true,
   currentTenant: 'unknown',
   isAuthenticated: false,
   isAdmin: false,
   isSuperAdmin: false,
-  authenticateWithSecretKey: async () => ({ success: false }),
-  authenticateWithPassword: async () => ({ success: false }),
+  // authenticateWithSecretKey: async () => ({ success: false }),
+  // authenticateWithPassword: async () => ({ success: false }),
   logout: () => {},
 });
 
 export function SecretKeyAuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [staff, setStaff] = useState<Staff | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentTenant, setCurrentTenant] = useState<string>('unknown');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   
-  // 管理者判定
-  const isAdmin = user?.role === 'tenantAdmin' || user?.role === 'superAdmin' || user?.role === 'fulfillmentOperator';
-  const isSuperAdmin = user?.role === 'superAdmin';
+  // 管理者判定（staffコレクションから取得）
+  const isAdmin = staff !== null;
+  const isSuperAdmin = staff?.role === 'superAdmin';
 
-  // セッションから認証状態を復元
+  // Firebase Authenticationの認証状態を監視
   useEffect(() => {
-    // まずlocalStorageをチェック（より永続的）
-    const persistentUser = localStorage.getItem('secretKeyUser');
-    const persistentTenant = localStorage.getItem('secretKeyTenant');
-    const persistentExpiry = localStorage.getItem('secretKeyExpiry');
-    
-    // 次にsessionStorageをチェック（セッション中）
-    const sessionUser = sessionStorage.getItem('secretKeyUser');
-    const sessionTenant = sessionStorage.getItem('secretKeyTenant');
-    const sessionExpiry = sessionStorage.getItem('secretKeyExpiry');
-    
-    const savedUser = persistentUser || sessionUser;
-    const savedTenant = persistentTenant || sessionTenant;
-    const savedExpiry = persistentExpiry || sessionExpiry;
-    
-    if (savedUser && savedTenant && savedExpiry) {
-      try {
-        const expiryTime = parseInt(savedExpiry);
-        const now = Date.now();
-        
-        // 有効期限をチェック（24時間）
-        if (now < expiryTime) {
-          const userData = JSON.parse(savedUser);
-          setUser(userData);
-          setCurrentTenant(savedTenant);
-          setIsAuthenticated(true);
-          console.log('Authentication state restored from storage');
-        } else {
-          console.log('Authentication expired, clearing storage');
-          localStorage.removeItem('secretKeyUser');
-          localStorage.removeItem('secretKeyTenant');
-          localStorage.removeItem('secretKeyExpiry');
-          sessionStorage.removeItem('secretKeyUser');
-          sessionStorage.removeItem('secretKeyTenant');
-          sessionStorage.removeItem('secretKeyExpiry');
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      console.log('=== Auth State Changed ===');
+      console.log('firebaseUser:', firebaseUser?.uid);
+      
+      if (firebaseUser) {
+        // Firebase Authenticationで認証されている場合
+        try {
+          // Firestoreからユーザー情報を取得
+          const userDocRef = doc(db, 'users', firebaseUser.uid);
+          const userDocSnap = await getDoc(userDocRef);
+          
+          // まずstaffコレクションを確認（管理者の場合）
+          const staffData = await getStaffByUid(firebaseUser.uid);
+          
+          if (staffData) {
+            // 管理者（スタッフ）の場合
+            setStaff(staffData);
+            setCurrentTenant(staffData.adminTenant);
+            setIsAuthenticated(true);
+            console.log('Staff authenticated:', firebaseUser.uid);
+            
+            // localStorageにも保存
+            localStorage.setItem('secretKeyStaff', JSON.stringify(staffData));
+            localStorage.setItem('secretKeyTenant', staffData.adminTenant);
+            localStorage.setItem('secretKeyExpiry', (Date.now() + 24 * 60 * 60 * 1000).toString());
+          } else if (userDocSnap.exists()) {
+            // エンドユーザーの場合
+            const userData = userDocSnap.data();
+            const user: User = {
+              uid: firebaseUser.uid,
+              email: firebaseUser.email || '',
+              displayName: userData.displayName || firebaseUser.displayName || undefined,
+              tenant: userData.tenant || getCurrentTenant(),
+              tenants: userData.tenants,
+              createdAt: userData.createdAt?.toDate() || new Date(),
+              updatedAt: userData.updatedAt?.toDate() || new Date(),
+            };
+            setUser(user);
+            setCurrentTenant(user.tenant || getCurrentTenant());
+            setIsAuthenticated(true);
+            console.log('Firebase Authentication state restored:', firebaseUser.uid);
+            console.log('User data set:', user);
+            
+            // localStorageにも保存（別ブラウザ対応）
+            localStorage.setItem('secretKeyUser', JSON.stringify(user));
+            localStorage.setItem('secretKeyTenant', user.tenant || getCurrentTenant());
+            localStorage.setItem('secretKeyExpiry', (Date.now() + 24 * 60 * 60 * 1000).toString());
+          } else {
+            // Firestoreにユーザー情報がない場合、localStorageから復元を試みる
+            // まずstaffを確認
+            const savedStaff = localStorage.getItem('secretKeyStaff');
+            const savedUser = localStorage.getItem('secretKeyUser');
+            const savedTenant = localStorage.getItem('secretKeyTenant');
+            
+            if (savedStaff && savedTenant) {
+              try {
+                const staffData = JSON.parse(savedStaff);
+                if (staffData.uid === firebaseUser.uid) {
+                  setStaff(staffData);
+                  setCurrentTenant(staffData.adminTenant);
+                  setIsAuthenticated(true);
+                  console.log('Staff data restored from storage');
+                } else {
+                  console.warn('Saved staff UID does not match Firebase user UID');
+                }
+              } catch (error) {
+                console.error('Error parsing saved staff data:', error);
+              }
+            } else if (savedUser && savedTenant) {
+              try {
+                const userData = JSON.parse(savedUser);
+                if (userData.uid === firebaseUser.uid) {
+                  setUser(userData);
+                  setCurrentTenant(savedTenant);
+                  setIsAuthenticated(true);
+                  console.log('User data restored from storage');
+                } else {
+                  console.warn('Saved user UID does not match Firebase user UID');
+                }
+              } catch (error) {
+                console.error('Error parsing saved user data:', error);
+              }
+            } else {
+              console.warn('No user or staff data found in Firestore or localStorage');
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching user data:', error);
         }
-      } catch (error) {
-        console.error('Error parsing saved user data:', error);
-        localStorage.removeItem('secretKeyUser');
-        localStorage.removeItem('secretKeyTenant');
-        localStorage.removeItem('secretKeyExpiry');
-        sessionStorage.removeItem('secretKeyUser');
-        sessionStorage.removeItem('secretKeyTenant');
-        sessionStorage.removeItem('secretKeyExpiry');
+      } else {
+        // Firebase Authenticationで認証されていない場合、localStorageから復元を試みる
+        const persistentStaff = localStorage.getItem('secretKeyStaff');
+        const persistentUser = localStorage.getItem('secretKeyUser');
+        const persistentTenant = localStorage.getItem('secretKeyTenant');
+        const persistentExpiry = localStorage.getItem('secretKeyExpiry');
+        
+        if (persistentStaff && persistentTenant && persistentExpiry) {
+          try {
+            const expiryTime = parseInt(persistentExpiry);
+            const now = Date.now();
+            
+            // 有効期限をチェック（24時間）
+            if (now < expiryTime) {
+              const staffData = JSON.parse(persistentStaff);
+              setStaff(staffData);
+              setCurrentTenant(staffData.adminTenant);
+              setIsAuthenticated(true);
+              console.log('Staff authentication state restored from storage');
+            } else {
+              console.log('Authentication expired, clearing storage');
+              localStorage.removeItem('secretKeyStaff');
+              localStorage.removeItem('secretKeyTenant');
+              localStorage.removeItem('secretKeyExpiry');
+              sessionStorage.removeItem('secretKeyStaff');
+              sessionStorage.removeItem('secretKeyTenant');
+              sessionStorage.removeItem('secretKeyExpiry');
+            }
+          } catch (error) {
+            console.error('Error parsing saved staff data:', error);
+            localStorage.removeItem('secretKeyStaff');
+            localStorage.removeItem('secretKeyTenant');
+            localStorage.removeItem('secretKeyExpiry');
+            sessionStorage.removeItem('secretKeyStaff');
+            sessionStorage.removeItem('secretKeyTenant');
+            sessionStorage.removeItem('secretKeyExpiry');
+          }
+        } else if (persistentUser && persistentTenant && persistentExpiry) {
+          try {
+            const expiryTime = parseInt(persistentExpiry);
+            const now = Date.now();
+            
+            // 有効期限をチェック（24時間）
+            if (now < expiryTime) {
+              const userData = JSON.parse(persistentUser);
+              setUser(userData);
+              setCurrentTenant(persistentTenant);
+              setIsAuthenticated(true);
+              console.log('User authentication state restored from storage');
+            } else {
+              console.log('Authentication expired, clearing storage');
+              localStorage.removeItem('secretKeyUser');
+              localStorage.removeItem('secretKeyTenant');
+              localStorage.removeItem('secretKeyExpiry');
+              sessionStorage.removeItem('secretKeyUser');
+              sessionStorage.removeItem('secretKeyTenant');
+              sessionStorage.removeItem('secretKeyExpiry');
+            }
+          } catch (error) {
+            console.error('Error parsing saved user data:', error);
+            localStorage.removeItem('secretKeyUser');
+            localStorage.removeItem('secretKeyTenant');
+            localStorage.removeItem('secretKeyExpiry');
+            sessionStorage.removeItem('secretKeyUser');
+            sessionStorage.removeItem('secretKeyTenant');
+            sessionStorage.removeItem('secretKeyExpiry');
+          }
+        } else {
+          setUser(null);
+          setStaff(null);
+          setCurrentTenant('unknown');
+          setIsAuthenticated(false);
+        }
       }
-    }
-    
-    setLoading(false);
+      
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  const authenticateWithSecretKey = async (secretKey: string) => {
-    try {
-      setLoading(true);
-      
-      // 管理者用秘密鍵のチェック（開発用）- 最初にチェック（Firestore不要）
-      if (isAdminSecretKey(secretKey)) {
-        console.log('Admin secret key detected, bypassing Firestore check');
-        const adminUserData: User = {
-          uid: 'admin-dev',
-          email: 'admin@emolink.dev',
-          displayName: '開発管理者',
-          tenant: 'futurestudio',
-          role: 'superAdmin', // 開発用はスーパー管理者
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-        
-        // セッションに保存
-        sessionStorage.setItem('secretKeyUser', JSON.stringify(adminUserData));
-        sessionStorage.setItem('secretKeyTenant', 'futurestudio');
-        sessionStorage.setItem('secretKeyExpiry', (Date.now() + 24 * 60 * 60 * 1000).toString());
-        
-        // localStorageにも保存（より永続的）
-        localStorage.setItem('secretKeyUser', JSON.stringify(adminUserData));
-        localStorage.setItem('secretKeyTenant', 'futurestudio');
-        localStorage.setItem('secretKeyExpiry', (Date.now() + 24 * 60 * 60 * 1000).toString());
-        
-        setUser(adminUserData);
-        setCurrentTenant('futurestudio');
-        setIsAuthenticated(true);
-        
-        return { success: true };
-      }
-      
-      // 通常の秘密鍵の有効性チェック（Firestoreに接続）はスキップ
-      // 開発環境ではFirestoreに接続しない
-      console.log('Non-admin secret key detected, skipping Firestore check for development');
-      return { success: false, error: 'この秘密鍵は使用できません。管理者用秘密鍵またはメールアドレスでログインしてください。' };
-      
-    } catch (error) {
-      console.error('Authentication error:', error);
-      return { success: false, error: '認証中にエラーが発生しました' };
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const authenticateWithPassword = async (password: string) => {
-    try {
-      setLoading(true);
-      
-      // 環境変数から開発用パスワードを取得
-      const devPassword = process.env.NEXT_PUBLIC_DEV_PASSWORD || 'dev1234';
-      
-      if (password !== devPassword) {
-        return { success: false, error: 'パスワードが正しくありません' };
-      }
-      
-      // 開発用ユーザーデータを作成（一般ユーザーとして）
-      const devUserData: User = {
-        uid: 'dev-user',
-        email: 'dev@emolink.dev',
-        displayName: '開発ユーザー',
-        tenant: 'futurestudio',
-        role: 'user', // 一般ユーザー
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      
-      // セッションに保存
-      sessionStorage.setItem('secretKeyUser', JSON.stringify(devUserData));
-      sessionStorage.setItem('secretKeyTenant', 'futurestudio');
-      sessionStorage.setItem('secretKeyExpiry', (Date.now() + 24 * 60 * 60 * 1000).toString());
-      
-      // localStorageにも保存（より永続的）
-      localStorage.setItem('secretKeyUser', JSON.stringify(devUserData));
-      localStorage.setItem('secretKeyTenant', 'futurestudio');
-      localStorage.setItem('secretKeyExpiry', (Date.now() + 24 * 60 * 60 * 1000).toString());
-      
-      setUser(devUserData);
-      setCurrentTenant('futurestudio');
-      setIsAuthenticated(true);
-      
-      return { success: true };
-    } catch (error) {
-      console.error('Password authentication error:', error);
-      return { success: false, error: '認証中にエラーが発生しました' };
-    } finally {
-      setLoading(false);
-    }
-  };
+  // 秘密鍵認証は廃止（JWTトークン認証リンク + メール/パスワードログインに変更）
+  // 認証は /auth ページでFirebase Authenticationを使用
+  // const authenticateWithSecretKey = async (secretKey: string) => { ... };
+  // const authenticateWithPassword = async (password: string) => { ... };
 
   const logout = () => {
     sessionStorage.removeItem('secretKeyUser');
+    sessionStorage.removeItem('secretKeyStaff');
     sessionStorage.removeItem('secretKeyTenant');
     sessionStorage.removeItem('secretKeyExpiry');
     localStorage.removeItem('secretKeyUser');
+    localStorage.removeItem('secretKeyStaff');
     localStorage.removeItem('secretKeyTenant');
     localStorage.removeItem('secretKeyExpiry');
     setUser(null);
+    setStaff(null);
     setCurrentTenant('unknown');
     setIsAuthenticated(false);
   };
@@ -201,14 +244,22 @@ export function SecretKeyAuthProvider({ children }: { children: React.ReactNode 
   return (
     <SecretKeyAuthContext.Provider value={{
       user,
-      currentUser: user, // 互換性のため
+      staff,
+      currentUser: user || (staff ? {
+        uid: staff.uid,
+        email: staff.email,
+        displayName: staff.displayName,
+        tenant: staff.adminTenant,
+        createdAt: staff.createdAt,
+        updatedAt: staff.updatedAt,
+      } : null), // 互換性のため（userまたはstaffの情報）
       loading,
       currentTenant,
       isAuthenticated,
       isAdmin,
       isSuperAdmin,
-      authenticateWithSecretKey,
-      authenticateWithPassword,
+      // authenticateWithSecretKey,
+      // authenticateWithPassword,
       logout,
     }}>
       {children}

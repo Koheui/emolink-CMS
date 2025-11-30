@@ -65,6 +65,7 @@ export default function UsersPage() {
       const usersRef = collection(db, 'users');
       
       // テナントフィルタを追加（セキュリティ上重要）
+      // エンドユーザーのみを取得（roleフィールドがない、または'user'のみ）
       const q = query(
         usersRef, 
         where('tenant', '==', tenant),
@@ -76,15 +77,20 @@ export default function UsersPage() {
       const usersData: User[] = [];
       querySnapshot.forEach((doc) => {
         const data = doc.data();
-        usersData.push({
-          uid: doc.id,
-          email: data.email,
-          displayName: data.displayName,
-          status: data.status || 'pending',
-          tenant: data.tenant || tenant,
-          createdAt: data.createdAt?.toDate() || new Date(),
-          updatedAt: data.updatedAt?.toDate() || new Date(),
-        });
+        // roleフィールドがない、または'user'の場合のみエンドユーザーとして扱う
+        // 管理者（role: 'tenantAdmin' | 'superAdmin' | 'fulfillmentOperator'）は除外
+        const role = data.role;
+        if (!role || role === 'user') {
+          usersData.push({
+            uid: doc.id,
+            email: data.email,
+            displayName: data.displayName,
+            status: data.status || 'pending',
+            tenant: data.tenant || tenant,
+            createdAt: data.createdAt?.toDate() || new Date(),
+            updatedAt: data.updatedAt?.toDate() || new Date(),
+          });
+        }
       });
       
       setUsers(usersData);

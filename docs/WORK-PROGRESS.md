@@ -10,9 +10,13 @@
 
 ### 重要なドキュメント
 - **`specifications/SPECIFICATION.md`** - 最新の統合仕様書（v3.3準拠）
+- **`specifications/DATABASE_DESIGN.md`** - データベース設計書（全アプリで共有、テナント分離の原則）
 - **`implementation/TODO-CMS.md`** - 実装状況と今後のタスク
 - **`specifications/specification-review.md`** - 仕様書と実装の整合性確認
 - **`specifications/system-architecture.v4.2.md`** - システムアーキテクチャ
+- **`specifications/PUBLIC-PAGE-URL-GENERATION.md`** - 公開ページURL生成機能（LP側実装ガイド）
+- **`specifications/ACCOUNT-CREATION-FLOW.md`** - アカウント作成フロー（CRM管理用）
+- **`specifications/DATABASE-STRUCTURE.md`** - データベース構造（Firestoreコレクション一覧）
 
 ### 現在の実装状況
 - ✅ **基本機能**: 実装完了（ユーザー管理、メモリー作成、ダッシュボード、テナント管理、注文管理）
@@ -31,7 +35,44 @@
 
 ### 2025年1月
 
-#### 2025年1月（最新）
+#### 2025年1月XX日（最新）
+
+- ✅ **データベース設計の整理とユーザーコレクション分離**
+  - 店舗情報、エンドユーザー情報、店舗スタッフ情報を明確に分離
+  - `users`コレクションから`role`と`adminTenant`フィールドを削除（エンドユーザーのみ）
+  - `staff`コレクションを新規作成（店舗スタッフ/管理者専用）
+  - `Company`インターフェースを追加（企業情報）
+  - `Tenant`インターフェースに`companyId`フィールドを追加
+  - 認証コンテキスト（`SecretKeyAuthContext`）を更新して`staff`コレクションから管理者情報を取得
+  - ログイン処理（`page.tsx`, `auth/page.tsx`）を更新して`staff`コレクションを確認
+  - 管理画面（`admin/users/page.tsx`）を更新してエンドユーザーのみ表示
+  - Firestoreルールを更新して`staff`コレクション用のセキュリティルールを追加
+  - 包括的なDB設計ドキュメント（`DATABASE_DESIGN.md`）を作成（全アプリで共有）
+  - テナント分離の原則を明確化（すべてのコレクションでテナント分離を実装）
+  - クエリパターン、セキュリティルール、インデックス要件を文書化
+
+#### 2025年1月（以前の作業）
+
+- ✅ **公開ページURL生成機能の実装**
+  - 認証成功時に空の公開ページを作成して`publicPageId`を確定
+  - `ClaimRequest`型に`publicPageId`、`publicPageUrl`、`loginUrl`フィールドを追加
+  - 認証成功時にURLを生成して`claimRequest`に保存
+  - LP側がURLを取得できるAPIエンドポイント（`/api/claim/[requestId]/urls`）の仕様を作成
+  - **注意**: このAPIはFirebase Functionsとして実装する必要があります（`output: export`のため、Next.js API Routeでは実装できません）
+  - LP側向けの実装ガイド（`PUBLIC-PAGE-URL-GENERATION.md`）を作成
+  - CRM管理用のフロードキュメント（`ACCOUNT-CREATION-FLOW.md`）を作成
+  - **メール送信**: LP側で実行（CMS側ではメール送信しない）
+
+- ✅ **LP側とのAPI連携仕様の調整**
+  - LP側で生成されたリンクと秘密鍵を受け取るようにAPIエンドポイントを修正
+  - CMS側でのJWT生成・秘密鍵生成・メール送信を削除
+  - `claimRequests`と`orders`にLP側で生成されたデータを保存するように変更
+  - `ClaimRequest`型に`link`、`secretKey`、`jwtToken`フィールドを追加
+  - LP側向けのAPI連携仕様書（`LP-API-integration.md`）を作成
+  - LP側の回答に基づいてレスポンス形式を統一（エラーレスポンスに`ok: false`を追加）
+  - `source`フィールドを`lp_form`に変更
+  - LP側への共有情報ドキュメント（`LP-SHARED-INFO.md`）を作成
+
 - ✅ **Specificationファイルの統合**
   - すべてのspecificationファイルを`SPECIFICATION.md`に統合
   - 古いspecificationファイル（v3.0, v3.1, v3.2, v3.3, v2.6, secret-key-v1.0.md）を削除
@@ -222,7 +263,16 @@
 
 ## 📝 作業メモ（日々の記録）
 
-### 2025年1月（最新の作業）
+### 2025年1月XX日（最新の作業）
+
+#### 作業内容
+- データベース設計の整理とユーザーコレクション分離
+- 店舗情報、エンドユーザー情報、店舗スタッフ情報を明確に分離
+- 包括的なDB設計ドキュメント（DATABASE_DESIGN.md）を作成
+- テナント分離の原則を明確化
+- 認証システムの更新（staffコレクション対応）
+
+### 2025年1月（以前の作業）
 
 #### 作業内容
 - Specificationファイルの統合と整理

@@ -1,10 +1,27 @@
+// エンドユーザー（顧客）情報
 export interface User {
   uid: string;
   email: string;
   displayName?: string;
-  tenant?: string; // テナント情報を追加
-  role?: 'user' | 'tenantAdmin' | 'superAdmin' | 'fulfillmentOperator'; // ユーザーロール
-  adminTenant?: string; // 管理者の場合のテナント（tenantAdmin/fulfillmentOperator用）
+  tenant: string; // テナント情報（顧客が所属する店舗）
+  tenants?: string[]; // 複数テナント対応（配列）
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// 店舗スタッフ（管理者）情報
+export interface Staff {
+  uid: string;
+  email: string;
+  displayName?: string;
+  role: 'tenantAdmin' | 'superAdmin' | 'fulfillmentOperator';
+  adminTenant: string; // 管理するテナントID
+  permissions?: {
+    canManageUsers?: boolean; // ユーザー管理権限
+    canManageOrders?: boolean; // 注文管理権限
+    canManageTenants?: boolean; // テナント管理権限（superAdminのみ）
+    canWriteNfc?: boolean; // NFC書き込み権限
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -19,8 +36,15 @@ export interface Memory {
   publicPageId?: string;
   coverAssetId?: string;
   profileAssetId?: string;
+  coverImage?: string; // カバー画像URL
   coverImagePosition?: string;
+  coverImageScale?: number; // カバー画像のスケール
+  profileImage?: string; // プロフィール画像URL
+  profileImagePosition?: string; // プロフィール画像の位置
+  profileImageScale?: number; // プロフィール画像のスケール
   description?: string;
+  bio?: string; // プロフィール文
+  topicsTitle?: string; // Topicsセクションのタイトル
   design: {
     theme: string;
     layout: string;
@@ -40,7 +64,7 @@ export interface Memory {
     title?: number;
     body?: number;
   };
-  blocks: Block[];
+  blocks: Block[] | any[]; // Block[]またはMediaBlock[]（実装に応じて）
   metadata?: {
     petName?: string;
     petType?: string;
@@ -48,6 +72,7 @@ export interface Memory {
     lpId?: string;
     [key: string]: any;
   };
+  storageUsed?: number; // ストレージ使用量（バイト単位、想い出ページごとに200MB制限）
   createdAt: Date;
   updatedAt: Date;
 }
@@ -99,6 +124,7 @@ export interface Album {
 export interface PublicPage {
   id: string;
   tenant: string; // テナント情報を追加
+  ownerUid?: string; // 所有者UID（エンドユーザーが自分の公開ページを更新できるようにするため）
   memoryId: string;
   title: string;
   about?: string;
@@ -122,6 +148,10 @@ export interface PublicPage {
     profile?: string;
   };
   coverImagePosition?: string;
+  coverImageScale?: number;
+  profileImagePosition?: string;
+  profileImageScale?: number;
+  bio?: string; // プロフィール文
   fontSizes?: {
     title?: number;
     body?: number;
@@ -229,6 +259,19 @@ export interface ClaimRequest {
   claimedAt?: Date;
   claimedByUid?: string;
   memoryId?: string;
+  // LP側で生成されたリンクと秘密鍵
+  link?: string;         // 認証リンク（LP側で生成）
+  secretKey?: string;    // 秘密鍵（LP側で生成）
+  jwtToken?: string;     // JWTトークン（検証用、linkから抽出）
+  // 公開ページ情報（認証成功時に確定）
+  publicPageId?: string;  // 公開ページID（NFCタグ用）
+  publicPageUrl?: string; // 公開ページURL（NFCタグ用）
+  loginUrl?: string;      // 次回ログイン用URL
+  // メール本文カスタマイズ情報（LP側から送信）
+  emailHeaderTitle?: string;    // メールヘッダータイトル
+  emailHeaderSubtitle?: string; // メールヘッダーサブタイトル
+  emailMainMessage?: string;    // メール本文メッセージ
+  emailFooterMessage?: string;   // メールフッターメッセージ
   createdAt: Date;
   updatedAt: Date;
 }
@@ -274,9 +317,31 @@ export function getProductName(order: { product?: string; productType?: string }
   return '商品名未設定';
 }
 
-// テナント情報の型定義
+// 企業（会社）情報の型定義
+export interface Company {
+  id: string;
+  name: string;
+  legalName?: string;
+  description?: string;
+  contact: {
+    email?: string;
+    phone?: string;
+    address?: string;
+  };
+  settings: {
+    maxTenants?: number;
+    billingEnabled: boolean;
+    features: string[];
+  };
+  status: 'active' | 'inactive' | 'suspended';
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// テナント（店舗）情報の型定義
 export interface Tenant {
   id: string;
+  companyId?: string; // 所属企業ID（オプショナル）
   name: string;
   description?: string;
   allowedLpIds: string[];
