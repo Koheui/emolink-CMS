@@ -1,64 +1,47 @@
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Home, ArrowLeft } from 'lucide-react';
+import { Home, ArrowLeft, AlertCircle } from 'lucide-react';
 
 export default function NotFound() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      <div className="max-w-md w-full">
-        {/* ヘッダー */}
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center space-x-2 mb-4">
-            <Home className="w-8 h-8 text-blue-600" />
-            <span className="text-2xl font-bold text-gray-900">CMS</span>
+    <div className="min-h-screen bg-[#000f24] flex items-center justify-center p-4">
+      <Card className="w-full max-w-md bg-[#1a1a1a] rounded-2xl border border-white/10 shadow-xl">
+        <CardHeader className="text-center">
+          <div className="mx-auto mb-4 w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center">
+            <AlertCircle className="w-8 h-8 text-red-400" />
           </div>
-          <div className="text-gray-600 font-medium mb-2">
-            管理システム
-          </div>
-        </div>
-
-        {/* 404エラーカード */}
-        <Card className="text-center">
-          <CardHeader>
-            <div className="mx-auto mb-4 w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
-              <span className="text-2xl font-bold text-gray-600">404</span>
-            </div>
-            <CardTitle className="text-xl">ページが見つかりません</CardTitle>
-            <CardDescription>
-              お探しのページは存在しないか、移動された可能性があります
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-gray-500">
-              このシステムは管理者専用の内部システムです。<br />
-              一般ユーザーの方は、外部のランディングページからアクセスしてください。
-            </p>
+          <CardTitle className="text-white text-2xl">404</CardTitle>
+          <CardDescription className="text-white/70">
+            ページが見つかりません
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-white/60 text-center">
+            お探しのページは存在しないか、移動された可能性があります
+          </p>
+          
+          <div className="space-y-2">
+            <Button asChild className="w-full bg-white text-black hover:bg-white/90">
+              <Link href="/">
+                <Home className="w-4 h-4 mr-2" />
+                ログインページへ戻る
+              </Link>
+            </Button>
             
-            <div className="space-y-2">
-              <Button asChild className="w-full">
-                <Link href="/">
-                  <Home className="w-4 h-4 mr-2" />
-                  管理者ログイン
-                </Link>
-              </Button>
-              
-              <Button variant="outline" asChild className="w-full">
-                <Link href="/dashboard">
-                  <ArrowLeft className="w-4 h-4 mr-2" />
-                  ダッシュボード
-                </Link>
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* フッター */}
-        <div className="text-center mt-8 text-sm text-gray-500">
-          <p>© 2024 CMS. All rights reserved.</p>
-          <p className="mt-1">Internal Management System</p>
-        </div>
-      </div>
+            <Button 
+              variant="outline" 
+              asChild 
+              className="w-full border-white/20 text-white/80 hover:bg-white/10"
+            >
+              <Link href="/memories/create">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                想い出ページ作成へ
+              </Link>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
