@@ -721,11 +721,26 @@ function CreateMemoryPageContent() {
     console.log('File:', { name: file.name, size: file.size, type: file.type });
     console.log('Media type:', type);
     console.log('Current user UID:', currentUser?.uid);
+    console.log('Auth state:', { isAuthenticated, authLoading, currentUser: !!currentUser });
+    console.log('Firebase Auth currentUser:', auth?.currentUser?.uid);
     
     // ユーザー認証チェック
     if (!currentUser?.uid) {
       console.error('User not authenticated, cannot upload file');
+      console.error('Auth details:', {
+        currentUser: currentUser,
+        isAuthenticated,
+        authLoading,
+        firebaseAuthUser: auth?.currentUser
+      });
       setError('ログインが必要です。ページをリロードしてください。');
+      return;
+    }
+    
+    // Firebase Storageの初期化確認
+    if (!storage) {
+      console.error('Firebase Storage is not initialized');
+      setError('ストレージの初期化に失敗しました。ページをリロードしてください。');
       return;
     }
     
@@ -739,16 +754,21 @@ function CreateMemoryPageContent() {
       console.log('Storage limit check result:', canUpload);
       if (!canUpload) {
         console.warn('Storage limit exceeded, aborting upload');
+        setError('ストレージ容量が不足しています。既存のファイルを削除してから再度お試しください。');
         setUploading(false);
         return;
       }
       
       console.log('Uploading to Firebase Storage...');
-      const storageRef = ref(storage, `memories/${currentUser.uid}/${Date.now()}_${file.name}`);
+      const storagePath = `memories/${currentUser.uid}/${Date.now()}_${file.name}`;
+      console.log('Storage path:', storagePath);
+      const storageRef = ref(storage, storagePath);
       console.log('Storage ref path:', storageRef.fullPath);
+      console.log('Storage bucket:', storageRef.bucket);
       
       const snapshot = await uploadBytes(storageRef, file);
       console.log('Upload complete, getting download URL...');
+      console.log('Upload snapshot:', { bytesTransferred: snapshot.metadata.size, totalBytes: snapshot.metadata.size });
       
       const downloadURL = await getDownloadURL(snapshot.ref);
       console.log('Download URL obtained:', downloadURL?.substring(0, 100));
@@ -784,8 +804,27 @@ function CreateMemoryPageContent() {
     } catch (err: any) {
       console.error('=== handleFileUpload: Error ===');
       console.error('Upload error:', err);
-      console.error('Error details:', { message: err.message, code: err.code, stack: err.stack });
-      setError('アップロードに失敗しました: ' + (err.message || 'Unknown error'));
+      console.error('Error details:', { 
+        message: err.message, 
+        code: err.code, 
+        stack: err.stack,
+        name: err.name,
+        serverResponse: err.serverResponse
+      });
+      
+      // エラーメッセージを詳細化
+      let errorMessage = 'アップロードに失敗しました';
+      if (err.code === 'storage/unauthorized') {
+        errorMessage = 'アップロード権限がありません。ログイン状態を確認してください。';
+      } else if (err.code === 'storage/canceled') {
+        errorMessage = 'アップロードがキャンセルされました。';
+      } else if (err.code === 'storage/unknown') {
+        errorMessage = '不明なエラーが発生しました。ページをリロードして再度お試しください。';
+      } else if (err.message) {
+        errorMessage = `アップロードに失敗しました: ${err.message}`;
+      }
+      
+      setError(errorMessage);
     } finally {
       setUploading(false);
       console.log('=== handleFileUpload: Finally (uploading set to false) ===');
