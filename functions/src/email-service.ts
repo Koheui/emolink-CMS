@@ -109,8 +109,11 @@ export async function sendSecretKeyEmail(
   // 商品名はデータベースに記載されているため、メール本文には表示しない
   // 店舗側の識別のため、テナントIDと注文IDを表示
 
+  const mailFromAddress = (gmailConfig?.user as string) || process.env.MAIL_FROM || 'noreply@emolink.net';
+  const mailFrom = `emolink <${mailFromAddress}>`;
+  
   const mailOptions = {
-    from: 'noreply@emolink.net',
+    from: mailFrom,
     to: email,
     subject: 'CMS - 秘密鍵のお知らせ',
     html: `
@@ -362,7 +365,8 @@ export async function sendPublicPageConfirmationEmail(
   const config = tenantEmailConfigs[tenantId] || tenantEmailConfigs['default'];
   
   const customerName = customerInfo?.name ? `${customerInfo.name} 様` : 'お客様';
-  const mailFrom = (gmailConfig?.user as string) || process.env.MAIL_FROM || 'noreply@emolink.net';
+  const mailFromAddress = (gmailConfig?.user as string) || process.env.MAIL_FROM || 'noreply@emolink.net';
+  const mailFrom = `emolink <${mailFromAddress}>`;
   
   // メールタイトル: 商品名があれば商品名、なければブランド名を使用
   const emailSubject = productName 
