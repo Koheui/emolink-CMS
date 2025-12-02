@@ -8,6 +8,16 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { getCurrentTenant } from '@/lib/security/tenant-validation';
 import { isAdminSecretKey } from '@/lib/secret-key-utils';
 import { getStaffByUid } from '@/lib/firestore';
+import {
+  canAccessCRM,
+  canEditOrders,
+  canEditCustomers,
+  canWriteNFC,
+  canManageStaff,
+  canManageTenants,
+  getStaffPermissions,
+  type StaffPermissions,
+} from '@/lib/security/role-check';
 
 interface SecretKeyAuthContextType {
   user: User | null; // エンドユーザー（顧客）
@@ -18,6 +28,14 @@ interface SecretKeyAuthContextType {
   isAuthenticated: boolean;
   isAdmin: boolean; // 管理者かどうか（staff !== null）
   isSuperAdmin: boolean; // スーパー管理者かどうか
+  // CRM権限チェック関数（スタッフ専用）
+  canAccessCRM: boolean; // CRM閲覧権限
+  canEditOrders: boolean; // 注文編集権限
+  canEditCustomers: boolean; // 顧客編集権限
+  canWriteNFC: boolean; // NFC書き込み権限
+  canManageStaff: boolean; // スタッフ管理権限
+  canManageTenants: boolean; // テナント管理権限
+  staffPermissions: StaffPermissions | null; // スタッフの権限情報
   // 秘密鍵認証は廃止（JWTトークン認証リンク + メール/パスワードログインに変更）
   // authenticateWithSecretKey: (secretKey: string) => Promise<{ success: boolean; error?: string }>;
   // authenticateWithPassword: (password: string) => Promise<{ success: boolean; error?: string }>;
@@ -33,6 +51,13 @@ const SecretKeyAuthContext = createContext<SecretKeyAuthContextType>({
   isAuthenticated: false,
   isAdmin: false,
   isSuperAdmin: false,
+  canAccessCRM: false,
+  canEditOrders: false,
+  canEditCustomers: false,
+  canWriteNFC: false,
+  canManageStaff: false,
+  canManageTenants: false,
+  staffPermissions: null,
   // authenticateWithSecretKey: async () => ({ success: false }),
   // authenticateWithPassword: async () => ({ success: false }),
   logout: () => {},
@@ -48,6 +73,15 @@ export function SecretKeyAuthProvider({ children }: { children: React.ReactNode 
   // 管理者判定（staffコレクションから取得）
   const isAdmin = staff !== null;
   const isSuperAdmin = staff?.role === 'superAdmin';
+  
+  // CRM権限チェック（スタッフ専用）
+  const canAccessCRMValue = canAccessCRM(staff);
+  const canEditOrdersValue = canEditOrders(staff);
+  const canEditCustomersValue = canEditCustomers(staff);
+  const canWriteNFCValue = canWriteNFC(staff);
+  const canManageStaffValue = canManageStaff(staff);
+  const canManageTenantsValue = canManageTenants(staff);
+  const staffPermissionsValue = staff ? getStaffPermissions(staff) : null;
 
   // Firebase Authenticationの認証状態を監視
   useEffect(() => {
@@ -258,6 +292,13 @@ export function SecretKeyAuthProvider({ children }: { children: React.ReactNode 
       isAuthenticated,
       isAdmin,
       isSuperAdmin,
+      canAccessCRM: canAccessCRMValue,
+      canEditOrders: canEditOrdersValue,
+      canEditCustomers: canEditCustomersValue,
+      canWriteNFC: canWriteNFCValue,
+      canManageStaff: canManageStaffValue,
+      canManageTenants: canManageTenantsValue,
+      staffPermissions: staffPermissionsValue,
       // authenticateWithSecretKey,
       // authenticateWithPassword,
       logout,

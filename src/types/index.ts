@@ -10,17 +10,23 @@ export interface User {
 }
 
 // 店舗スタッフ（管理者）情報
+// 注意: CRMの権限体系は弊社スタッフ専用で、LPの権限とは異なります
 export interface Staff {
   uid: string;
   email: string;
   displayName?: string;
-  role: 'tenantAdmin' | 'superAdmin' | 'fulfillmentOperator';
+  role: 'tenantAdmin' | 'superAdmin' | 'editor' | 'viewer'; // 'fulfillmentOperator'を'editor'に変更、'viewer'を追加
   adminTenant: string; // 管理するテナントID
   permissions?: {
-    canManageUsers?: boolean; // ユーザー管理権限
-    canManageOrders?: boolean; // 注文管理権限
-    canManageTenants?: boolean; // テナント管理権限（superAdminのみ）
-    canWriteNfc?: boolean; // NFC書き込み権限
+    canViewCRM?: boolean;        // CRM閲覧権限
+    canEditOrders?: boolean;      // 注文編集権限
+    canEditCustomers?: boolean;   // 顧客編集権限
+    canManageStaff?: boolean;     // スタッフ管理権限（管理者のみ）
+    canWriteNfc?: boolean;        // NFC書き込み権限
+    canManageTenants?: boolean;   // テナント管理権限（superAdminのみ）
+    // 後方互換性のため、旧フィールドも保持（非推奨）
+    canManageUsers?: boolean;     // ユーザー管理権限（非推奨、canEditCustomersを使用）
+    canManageOrders?: boolean;    // 注文管理権限（非推奨、canEditOrdersを使用）
   };
   createdAt: Date;
   updatedAt: Date;
