@@ -1,0 +1,208 @@
+import nodemailer from 'nodemailer';
+
+// メール送信設定
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_APP_PASSWORD
+  }
+});
+
+/**
+ * テナントごとのメールカスタマイズ設定
+ */
+interface TenantEmailConfig {
+  brandName: string;           // ブランド名（例：「ペット想い出リンク」）
+  companyName: string;          // 企業名（例：「ペットメモリー株式会社」）
+  productName: string;          // 商品名（例：「NFCタグ付きアクリルスタンド」）
+  serviceDescription: string;   // サービス説明（例：「大切なペットとの想い出をデジタルで残すサービス」）
+  supportEmail: string;
+  logoUrl?: string;
+  primaryColor: string;
+  customMessage?: string;
+}
+
+const tenantEmailConfigs: Record<string, TenantEmailConfig> = {
+  // デフォルト設定
+  'default': {
+    brandName: '想い出リンク',
+    companyName: '想い出リンク株式会社',
+    productName: 'NFCタグ付きアクリルスタンド',
+    serviceDescription: '大切な想い出をデジタルで残すサービス',
+    supportEmail: 'support@emolink.net',
+    primaryColor: '#0066cc',
+    customMessage: 'この度は、想い出リンクをご利用いただきありがとうございます。'
+  },
+  
+  // ペット向けテナント
+  'petmem': {
+    brandName: 'ペット想い出リンク',
+    companyName: 'ペットメモリー株式会社',
+    productName: 'NFCタグ付きペットアクリルスタンド',
+    serviceDescription: '大切なペットとの想い出をデジタルで残すサービス',
+    supportEmail: 'support@petmem.jp',
+    primaryColor: '#28a745',
+    customMessage: '大切なペットとの想い出を、いつまでも残していきましょう。'
+  },
+  
+  // 赤ちゃん筆テナント
+  'babyhair': {
+    brandName: '赤ちゃん筆想い出リンク',
+    companyName: '赤ちゃん筆株式会社',
+    productName: '赤ちゃんの初めての髪の毛をおさめるNFCタグ付きスタンド',
+    serviceDescription: 'お子様の成長の記録を残すサービス',
+    supportEmail: 'support@babyhair.jp',
+    primaryColor: '#ff6b9d',
+    customMessage: 'お子様の成長の記録を、美しく残していきましょう。'
+  },
+  
+  // その他のテナント例
+  'futurestudio': {
+    brandName: 'Future Studio',
+    companyName: 'Future Studio Inc.',
+    productName: 'NFCタグ付きメモリースタンド',
+    serviceDescription: 'あなたの大切な瞬間を記録するサービス',
+    supportEmail: 'support@futurestudio.com',
+    primaryColor: '#007bff',
+    customMessage: '素敵な想い出を一緒に作りましょう。'
+  }
+};
+
+/**
+ * 公開ページ確定通知メール（ログイン情報と公開ページURLを含む）
+ */
+export async function sendPublicPageConfirmationEmail(
+  email: string,
+  loginUrl: string,
+  loginEmail: string,
+  loginPassword: string,
+  publicPageUrl: string,
+  options?: {
+    customerInfo?: {
+      name?: string;
+    };
+    tenantId?: string;
+  }
+) {
+  const customerInfo = options?.customerInfo || {};
+  const tenantId = options?.tenantId || 'default';
+  
+  // テナント設定を取得
+  const config = tenantEmailConfigs[tenantId] || tenantEmailConfigs['default'];
+  
+  const customerName = customerInfo?.name ? `${customerInfo.name} 様` : 'お客様';
+  
+  const mailOptions = {
+    from: process.env.MAIL_FROM || 'noreply@emolink.net',
+    to: email,
+    subject: `${config.brandName} - 公開ページが確定しました`,
+    html: `
+      <div style="font-family: 'Hiragino Sans', 'Meiryo', 'Yu Gothic', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #333; font-size: 24px; margin: 0;">公開ページが確定しました</h1>
+        </div>
+        
+        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+          <p style="font-size: 16px; color: #555; margin: 0;">
+            ${customerName}<br>
+            想い出ページの公開ページURLが確定いたしました。<br>
+            以下の情報でログインして、想い出ページを編集・管理していただけます。
+          </p>
+        </div>
+        
+        <div style="background: #fff; border: 2px solid ${config.primaryColor}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+          <h3 style="color: ${config.primaryColor}; margin-top: 0; font-size: 18px;">🔑 ログイン情報</h3>
+          
+          <div style="margin-bottom: 20px;">
+            <p style="margin: 10px 0; font-size: 14px; color: #666; font-weight: bold;">
+              ログイン用URL:
+            </p>
+            <div style="background: #f5f5f5; padding: 15px; border-radius: 4px; margin-bottom: 15px; word-break: break-all;">
+              <a href="${loginUrl}" style="color: ${config.primaryColor}; text-decoration: none; font-size: 14px;">${loginUrl}</a>
+            </div>
+          </div>
+          
+          <div style="margin-bottom: 20px;">
+            <p style="margin: 10px 0; font-size: 14px; color: #666; font-weight: bold;">
+              ログインメールアドレス:
+            </p>
+            <div style="background: #f5f5f5; padding: 15px; border-radius: 4px; margin-bottom: 15px; font-family: monospace; font-size: 14px; color: #333;">
+              ${loginEmail}
+            </div>
+          </div>
+          
+          <div style="margin-bottom: 20px;">
+            <p style="margin: 10px 0; font-size: 14px; color: #666; font-weight: bold;">
+              ログインパスワード:
+            </p>
+            <div style="background: #f5f5f5; padding: 15px; text-align: center; font-family: monospace; font-size: 18px; letter-spacing: 2px; border-radius: 4px; font-weight: bold; color: ${config.primaryColor};">
+              ${loginPassword}
+            </div>
+          </div>
+        </div>
+        
+        <div style="background: #e7f3ff; border: 2px solid ${config.primaryColor}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+          <h3 style="color: ${config.primaryColor}; margin-top: 0; font-size: 18px;">🌐 公開ページURL</h3>
+          <p style="margin: 10px 0; font-size: 14px; color: #666;">
+            以下のURLで想い出ページを公開しています。NFCタグやQRコードからアクセスできます。
+          </p>
+          <div style="background: #f5f5f5; padding: 15px; border-radius: 4px; margin-top: 15px; word-break: break-all;">
+            <a href="${publicPageUrl}" style="color: ${config.primaryColor}; text-decoration: none; font-size: 14px; font-weight: bold;">${publicPageUrl}</a>
+          </div>
+        </div>
+        
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${loginUrl}" style="background: ${config.primaryColor}; color: white; padding: 15px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; font-size: 16px; margin-right: 10px;">
+            ログインページを開く
+          </a>
+          <a href="${publicPageUrl}" style="background: #28a745; color: white; padding: 15px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; font-size: 16px;">
+            公開ページを確認
+          </a>
+        </div>
+        
+        <div style="background: #e7f3ff; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+          <h3 style="color: #004085; margin-top: 0; font-size: 16px;">📝 利用方法</h3>
+          <ol style="margin: 0; padding-left: 20px; color: #333; line-height: 1.8;">
+            <li>ログイン用URLからログインページを開く</li>
+            <li>メールアドレスとパスワードでログイン</li>
+            <li>想い出ページを編集・管理</li>
+            <li>公開ページURLをNFCタグやQRコードに設定</li>
+          </ol>
+        </div>
+        
+        <div style="background: #fff3cd; padding: 15px; border-radius: 4px; margin-bottom: 20px; border-left: 4px solid #ffc107;">
+          <p style="margin: 0; color: #856404; font-size: 14px; line-height: 1.6;">
+            <strong>⚠️ 重要:</strong> ログイン情報は大切に保管してください。パスワードを忘れた場合は、サポートまでお問い合わせください。
+          </p>
+        </div>
+        
+        <div style="background: #d4edda; padding: 15px; border-radius: 4px; margin-bottom: 20px; border-left: 4px solid #28a745;">
+          <p style="margin: 0; color: #155724; font-size: 14px; line-height: 1.6;">
+            <strong>💡 ヒント:</strong> 公開ページURLはNFCタグやQRコードに設定することで、スマートフォンで簡単にアクセスできます。
+          </p>
+        </div>
+        
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666; line-height: 1.6;">
+          <p style="margin: 0 0 10px 0;">このメールは自動送信されています。返信はできません。</p>
+          <p style="margin: 0;">ご不明な点がございましたら、サポートまでお問い合わせください。</p>
+          <p style="margin: 10px 0 0 0; font-size: 11px; color: #999;">
+            ${config.companyName} (${config.brandName})<br>
+            Email: ${config.supportEmail}
+          </p>
+        </div>
+      </div>
+    `
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log('Public page confirmation email sent successfully to:', email);
+    return { success: true };
+  } catch (error) {
+    console.error('Error sending public page confirmation email:', error);
+    throw error;
+  }
+}
+
+

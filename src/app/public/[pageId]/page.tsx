@@ -1,37 +1,21 @@
-import dynamic from 'next/dynamic';
+'use client';
+
 import { Suspense } from 'react';
+import { PublicPageClient } from '@/components/public-page-client';
 
-// クライアントコンポーネントを動的インポート
-const PublicPageClient = dynamic(() => import('./public-page-client').then(mod => ({ default: mod.PublicPageClient })), {
-  ssr: false,
-  loading: () => (
-    <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
-      <div className="w-12 h-12 border-4 border-[#00ff00] border-t-transparent rounded-full animate-spin"></div>
-    </div>
-  ),
-});
-
-// output: export設定用のgenerateStaticParams
-export function generateStaticParams() {
-  return [
-    { pageId: 'preview' },
-  ];
+function PublicPageContent({ pageId }: { pageId: string }) {
+  return <PublicPageClient initialPageId={pageId} />;
 }
 
-interface PublicPageProps {
-  params: {
-    pageId: string;
-  };
-}
-
-export default function PublicPage({ params }: PublicPageProps) {
+export default function PublicPage({ params }: { params: { pageId: string } }) {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
-        <div className="w-12 h-12 border-4 border-[#00ff00] border-t-transparent rounded-full animate-spin"></div>
+      <div className="min-h-screen flex items-center justify-center bg-[#000f24]">
+        <div className="text-white">読み込み中...</div>
       </div>
     }>
-      <PublicPageClient />
+      <PublicPageContent pageId={params.pageId} />
     </Suspense>
   );
 }
+

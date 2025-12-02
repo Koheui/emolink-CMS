@@ -185,7 +185,8 @@ function AuthContent() {
         // 想い出ページ作成画面にリダイレクト（エンドユーザーはダッシュボードを経由しない）
         setTimeout(() => {
           window.location.href = '/memories/create';
-      }, 1500);
+        }, 1500);
+      }
     } catch (error: any) {
       console.error('メールリンク認証エラー:', error);
       setMessage(`認証に失敗しました: ${error.message}`);

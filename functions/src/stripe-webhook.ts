@@ -1,11 +1,13 @@
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import * as admin from 'firebase-admin';
 import Stripe from 'stripe';
 import { generateSecretKey } from '../../src/lib/secret-key-utils';
 import { sendSecretKeyEmail } from './email-service';
 
 // Stripe設定
-const stripe = new Stripe(functions.config().stripe.secret_key, {
+// functions.config()は実行時にのみ利用可能なため、環境変数を使用
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
+const stripe = new Stripe(stripeSecretKey, {
   apiVersion: '2023-10-16',
 });
 
@@ -15,15 +17,16 @@ const db = admin.firestore();
  * Stripe Webhook処理
  * 決済完了後に秘密鍵を生成・メール送信
  */
-export const stripeWebhook = functions.https.onRequest(async (req, res) => {
+export const stripeWebhook = functions.https.onRequest(async (req: functions.Request, res: functions.Response) => {
   const sig = req.headers['stripe-signature'] as string;
-  const endpointSecret = functions.config().stripe.webhook_secret;
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
 
   let event: Stripe.Event;
 
   try {
     // Webhook署名の検証
-    event = stripe.webhooks.constructEvent(req.rawBody, sig, endpointSecret);
+    const rawBody = (req as any).rawBody || JSON.stringify(req.body);
+    event = stripe.webhooks.constructEvent(rawBody, sig, endpointSecret);
   } catch (err) {
     console.error('Webhook signature verification failed:', err);
     res.status(400).send('Webhook Error');

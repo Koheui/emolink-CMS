@@ -15,7 +15,7 @@ import {
 } from 'firebase/firestore';
 import { ref, deleteObject, listAll } from 'firebase/storage';
 import { db, storage } from './firebase';
-import { Memory, Asset, PublicPage, ClaimRequest, Order, AcrylicPhoto, ShippingInfo, Staff } from '@/types';
+import { Memory, Asset, PublicPage, ClaimRequest, Order, AcrylicPhoto, ShippingInfo, Staff, User } from '@/types';
 import { getCurrentTenant } from './security/tenant-validation';
 
 // Memories
@@ -476,7 +476,7 @@ export async function deleteAsset(assetId: string): Promise<void> {
 // Public Pages
 export const publicPagesCollection = collection(db, 'publicPages');
 
-export async function getPublicPageById(pageId: string): Promise<PublicPage | null> {
+export async function getPublicPageById(pageId: string, skipTenantCheck: boolean = true): Promise<PublicPage | null> {
   const docRef = doc(db, 'publicPages', pageId);
   const docSnap = await getDoc(docRef);
   
@@ -491,13 +491,8 @@ export async function getPublicPageById(pageId: string): Promise<PublicPage | nu
     updatedAt: docSnap.data().updatedAt?.toDate() || new Date(),
   } as PublicPage;
   
-  // テナント検証（書き込み時のみ）
-  if (typeof window !== 'undefined') {
-    const currentTenant = getCurrentTenant();
-    if (page.tenant !== currentTenant) {
-      throw new Error('Access denied: Tenant mismatch');
-    }
-  }
+  // 公開ページは誰でもアクセスできるため、テナント検証は行わない（skipTenantCheck=trueがデフォルト）
+  // 書き込み時のみテナント検証を行う（updatePublicPage関数で実装）
   
   return page;
 }

@@ -21,21 +21,11 @@ export function formatDate(date: Date | string | number): string {
  * @returns 公開ページのURL
  */
 export function generatePublicPageUrl(pageId: string, tenant?: string, baseUrl?: string): string {
-  if (typeof window === 'undefined') {
-    // サーバーサイドの場合は、テナント情報をクエリパラメータで含める
-    const url = baseUrl || process.env.NEXT_PUBLIC_APP_URL || 'https://emolink.cloud';
-    if (tenant) {
-      return `${url}/public/${pageId}?tenant=${tenant}`;
-    }
-    return `${url}/public/${pageId}`;
-  }
-
-  // クライアントサイドの場合は、現在のテナント情報を使用
-  const currentTenant = tenant || localStorage.getItem('secretKeyTenant') || 'unknown';
-  const origin = baseUrl || window.location.origin;
+  // 環境変数で固定ドメインを使用（NFCタグ用に一貫性を保つ）
+  const url = baseUrl || (typeof window !== 'undefined' ? process.env.NEXT_PUBLIC_APP_URL || window.location.origin : process.env.NEXT_PUBLIC_APP_URL || 'https://emolink-cms.web.app');
   
-  // テナント情報をクエリパラメータで含める（NFCタグ用に短いURLを維持）
-  return `${origin}/public/${pageId}?tenant=${currentTenant}`;
+  // シンプルなURL（テナント情報はクエリパラメータに含めない）
+  return `${url}/public/${pageId}`;
 }
 
 /**

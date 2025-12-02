@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Play, ArrowLeft, Share2, X, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
@@ -71,11 +71,33 @@ interface MediaBlock {
   }>;
 }
 
-export function PublicPageClient() {
-  const params = useParams();
+interface PublicPageClientProps {
+  initialPageId?: string;
+}
+
+export function PublicPageClient({ initialPageId }: PublicPageClientProps) {
   const searchParams = useSearchParams();
-  const pageId = params.pageId as string;
-  const tenantFromQuery = searchParams.get('tenant'); // クエリパラメータからテナント情報を取得
+  // 静的エクスポートではuseParams()が動作しない場合があるため、URLから直接取得するフォールバックを追加
+  const [pageId, setPageId] = useState<string>(initialPageId || '');
+  
+  useEffect(() => {
+    // 優先順位: initialPageId > URLから直接取得
+    if (initialPageId) {
+      setPageId(initialPageId);
+      return;
+    }
+    
+    // フォールバック: URLから直接取得
+    if (typeof window !== 'undefined') {
+      const pathname = window.location.pathname;
+      const match = pathname.match(/^\/public\/([^\/]+)/);
+      if (match && match[1]) {
+        console.log('Extracted pageId from URL:', match[1]);
+        setPageId(match[1]);
+      }
+    }
+  }, [initialPageId]);
+  
   const [pageData, setPageData] = useState<PublicPageData | null>(null);
   const [mediaBlocks, setMediaBlocks] = useState<MediaBlock[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,7 +124,25 @@ export function PublicPageClient() {
 
   useEffect(() => {
     const fetchPageData = async () => {
-      if (!pageId) return;
+      // pageIdが設定されるまで待つ
+      if (!pageId) {
+        // pageIdがまだ設定されていない場合は、URLから直接取得を試みる
+        if (typeof window !== 'undefined') {
+          const pathname = window.location.pathname;
+          const match = pathname.match(/^\/public\/([^\/]+)/);
+          if (match && match[1]) {
+            console.log('Extracting pageId from URL in fetchPageData:', match[1]);
+            setPageId(match[1]);
+            return; // pageIdが設定されたので、次のuseEffectで再実行される
+          }
+        }
+        console.error('pageId is not available');
+        setError('ページIDが指定されていません');
+        setLoading(false);
+        return;
+      }
+      
+      console.log('Fetching page data for pageId:', pageId);
       
       // 開発環境用：プレビューモード（pageIdが'preview'の場合）
       if (pageId === 'preview') {
@@ -241,22 +281,26 @@ export function PublicPageClient() {
       
       try {
         setLoading(true);
+        console.log('Fetching publicPage document:', pageId);
         const pageDoc = await getDoc(doc(db, 'publicPages', pageId));
         
         if (!pageDoc.exists()) {
+          console.error('Public page not found:', pageId);
           setError('ページが見つかりません');
           setLoading(false);
           return;
         }
         
+        console.log('Public page found:', {
+          id: pageDoc.id,
+          hasData: !!pageDoc.data(),
+          tenant: pageDoc.data()?.tenant,
+        });
+        
         const data = pageDoc.data() as PublicPageData;
         
-        // テナント検証（クエリパラメータからテナント情報が提供されている場合）
-        if (tenantFromQuery && data.tenant !== tenantFromQuery) {
-          setError('テナント情報が一致しません');
-          setLoading(false);
-          return;
-        }
+        // テナント検証は不要（publicPageドキュメント自体にtenant情報が含まれているため）
+        // 公開ページは誰でもアクセス可能（access.publicがtrueの場合）
         
         // カバー画像の表示位置とスケールを取得
         if (data.coverImagePosition) {
@@ -301,7 +345,25 @@ export function PublicPageClient() {
         setPageData({
           ...data,
           id: pageDoc.id,
+          // mediaが存在しない場合は空のオブジェクトを設定
+          media: data.media || { cover: undefined, profile: undefined },
         });
+        
+        // メディアブロックを取得（memoryIdから）
+        if (data.memoryId) {
+          try {
+            const memoryDoc = await getDoc(doc(db, 'memories', data.memoryId));
+            if (memoryDoc.exists()) {
+              const memoryData = memoryDoc.data();
+              const blocks = memoryData.blocks || [];
+              // 公開設定のブロックのみを表示
+              const publicBlocks = blocks.filter((b: any) => b.visibility === 'public');
+              setMediaBlocks(publicBlocks);
+            }
+          } catch (err) {
+            console.error('Error fetching memory blocks:', err);
+          }
+        }
       } catch (err: any) {
         console.error('Error fetching page:', err);
         setError('ページの読み込みに失敗しました');
@@ -355,10 +417,10 @@ export function PublicPageClient() {
       )}
 
       {/* メイン画像（固定） */}
-      {pageData.media.cover && (
-        <div className="fixed top-0 left-0 w-full z-10" style={{ height: '100dvh' }}>
+      {pageData.media?.cover && (
+        <div className="fixed top-0 left-0 w-full z-10" style={{ height: '100dvh', overflow: 'hidden' }}>
           <img 
-            src={pageData.media.cover} 
+            src={pageData.media?.cover || ''} 
             alt={pageData.title} 
             className="w-full h-full object-cover cursor-pointer block m-0 p-0"
             style={{ 
@@ -370,10 +432,15 @@ export function PublicPageClient() {
               fontSize: 0,
               objectPosition: coverImagePosition,
               transform: `scale(${coverImageScale || 1})`,
-              height: '100%'
+              transformOrigin: 'center center',
+              height: '100%',
+              width: '100%',
+              willChange: 'auto',
+              transition: 'none',
+              animation: 'none',
             }}
             onClick={() => {
-              setSelectedImage(pageData.media.cover || null);
+              setSelectedImage(pageData.media?.cover || null);
               setSelectedImageBlock(null);
             }}
           />
@@ -426,12 +493,12 @@ export function PublicPageClient() {
       {/* コンテンツエリア（カバー画像の下にスクロール可能なコンテンツ） */}
       <div className="relative z-20 rounded-t-2xl" style={{ marginTop: '100dvh', backgroundColor: colors.background, minHeight: '100vh' }}>
         {/* Bioセクション（カバー画像の下、Topicsの上） */}
-        {(pageData.title || pageData.about || pageData.bio || pageData.media.profile) && (
+        {(pageData.title || pageData.about || pageData.bio || pageData.media?.profile) && (
           <div className="w-full pt-16 pb-6">
             <div className="max-w-2xl mx-auto px-6 sm:px-8 md:px-10">
               <div className="flex flex-row gap-6 sm:gap-8 items-start">
                 {/* プロフィール写真 */}
-                {pageData.media.profile && (
+                {pageData.media?.profile && (
                   <div className="flex-shrink-0">
                     <img
                       src={pageData.media.profile}

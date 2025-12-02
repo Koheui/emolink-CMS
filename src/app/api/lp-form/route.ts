@@ -1,19 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { sendSignInLinkToEmail } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
 import { getTenantFromOrigin } from '@/lib/security/tenant-validation';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { email, tenant, lpId, productType, recaptchaToken, testMode } = body;
+    const { 
+      email, 
+      tenant, 
+      lpId, 
+      productType, 
+      recaptchaToken, 
+      testMode, 
+      link, 
+      secretKey,
+      // メール本文カスタマイズ情報（LP側から送信、オプション）
+      emailHeaderTitle,
+      emailHeaderSubtitle,
+      emailMainMessage,
+      emailFooterMessage
+    } = body;
 
     // バリデーション
     if (!email || !tenant || !lpId || !productType) {
       return NextResponse.json(
-        { error: 'Missing required fields' },
+        { ok: false, error: 'Missing required fields' },
+        { status: 400 }
+      );
+    }
+
+    // LP側で生成されたリンクと秘密鍵を受け取る
+    if (!link || !secretKey) {
+      return NextResponse.json(
+        { ok: false, error: 'Missing link or secretKey from LP' },
         { status: 400 }
       );
     }
@@ -34,7 +54,7 @@ export async function POST(request: NextRequest) {
         actualLpId = lpId;
       } else {
         return NextResponse.json(
-          { error: 'Invalid origin' },
+          { ok: false, error: 'Invalid origin' },
           { status: 403 }
         );
       }
@@ -45,7 +65,7 @@ export async function POST(request: NextRequest) {
     if (process.env.NODE_ENV !== 'development') {
       if (!recaptchaToken || recaptchaToken === 'dev-token') {
         return NextResponse.json(
-          { error: 'Invalid reCAPTCHA token' },
+          { ok: false, error: 'Invalid reCAPTCHA token' },
           { status: 400 }
         );
       }
@@ -73,7 +93,7 @@ export async function POST(request: NextRequest) {
           
           if (!verifyData.success) {
             return NextResponse.json(
-              { error: 'reCAPTCHA verification failed', details: verifyData['error-codes'] },
+              { ok: false, error: 'reCAPTCHA verification failed', details: verifyData['error-codes'] },
               { status: 400 }
             );
           }
@@ -84,14 +104,14 @@ export async function POST(request: NextRequest) {
           // スコアが0.5未満の場合は拒否
           if (recaptchaScore < 0.5) {
             return NextResponse.json(
-              { error: 'reCAPTCHA score too low', score: recaptchaScore },
+              { ok: false, error: 'reCAPTCHA score too low', score: recaptchaScore },
               { status: 400 }
             );
           }
         } catch (error) {
           console.error('reCAPTCHA verification error:', error);
           return NextResponse.json(
-            { error: 'reCAPTCHA verification error' },
+            { ok: false, error: 'reCAPTCHA verification error' },
             { status: 500 }
           );
         }
@@ -112,17 +132,52 @@ export async function POST(request: NextRequest) {
       ua: request.headers.get('user-agent') || 'unknown',
       recaptchaScore: recaptchaScore,
       status: 'pending',
-      source: 'manual_entry', // BtoBでの手動入力
+      source: 'lp_form', // LPフォーム経由
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
 
-    const docRef = await addDoc(collection(db, 'claimRequests'), claimRequest);
+    // LP側で生成されたリンクからJWTトークンを抽出
+    // リンク形式: https://app.example.com/claim?k={jwt} または /claim?k={jwt}
+    let jwtToken = '';
+    try {
+      const url = new URL(link, 'http://localhost'); // 相対URL対応のためbase URLを追加
+      jwtToken = url.searchParams.get('k') || '';
+      if (!jwtToken) {
+        // リンクにkパラメータがない場合、リンク自体がJWTトークンの可能性
+        jwtToken = link;
+      }
+    } catch (error) {
+      // URL解析に失敗した場合、リンク自体がJWTトークンの可能性
+      jwtToken = link;
+    }
+
+    // claimRequestsにリンクと秘密鍵、メール本文情報を保存
+    const claimRequestWithLink: any = {
+      ...claimRequest,
+      link: link,
+      secretKey: secretKey,
+      jwtToken: jwtToken, // 検証用に保存
+    };
+
+    // メール本文カスタマイズ情報を保存（LP側から送信された場合）
+    if (emailHeaderTitle) {
+      claimRequestWithLink.emailHeaderTitle = emailHeaderTitle;
+    }
+    if (emailHeaderSubtitle) {
+      claimRequestWithLink.emailHeaderSubtitle = emailHeaderSubtitle;
+    }
+    if (emailMainMessage) {
+      claimRequestWithLink.emailMainMessage = emailMainMessage;
+    }
+    if (emailFooterMessage) {
+      claimRequestWithLink.emailFooterMessage = emailFooterMessage;
+    }
+
+    const docRef = await addDoc(collection(db, 'claimRequests'), claimRequestWithLink);
     const requestId = docRef.id;
 
     // 2. 注文（orders）を作成（BtoB店舗受付用）
-    const { generateSecretKey } = await import('@/lib/secret-key-utils');
-    const secretKey = generateSecretKey();
     const orderData = {
       orderId: requestId,
       email,
@@ -132,66 +187,36 @@ export async function POST(request: NextRequest) {
       product: productType, // 商品名は後でカスタマイズ可能
       status: 'paid', // すでに決済済み
       orderStatus: 'photo_upload_pending', // 写真アップロード待ち
-      secretKey: secretKey,
+      secretKey: secretKey, // LP側で生成された秘密鍵を使用
       secretKeyExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30日
       paymentStatus: 'completed', // 決済済み
-      source: 'manual_entry', // BtoBでの手動入力
+      source: 'lp_form', // LPフォーム経由
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
 
     await addDoc(collection(db, 'orders'), orderData);
 
-    // JWTトークンを生成（簡易版）
-    const jwt = Buffer.from(JSON.stringify({
-      sub: requestId,
-      email,
-      tenant: actualTenant,
-      lpId: actualLpId,
-      exp: Math.floor(Date.now() / 1000) + (72 * 60 * 60), // 72時間
-    })).toString('base64');
-
-    // 生成されたリンク
-    const generatedLink = `${process.env.NEXT_PUBLIC_CLAIM_CONTINUE_URL || 'http://localhost:3000/claim'}?k=${jwt}`;
-
-    // テストモードの場合はメール送信をスキップ
-    if (testMode) {
-      return NextResponse.json({
-        ok: true,
-        message: 'Test link generated',
-        requestId,
-        link: generatedLink,
-        jwt: jwt,
-      });
-    }
-
-    // メールリンクを送信
-    const actionCodeSettings = {
-      url: generatedLink,
-      handleCodeInApp: true,
-    };
-
-    await sendSignInLinkToEmail(auth, email, actionCodeSettings);
-
-    // ステータスを更新
+    // 監査ログに記録
     await addDoc(collection(db, 'auditLogs'), {
-      action: 'lpForm.sent',
+      action: 'lpForm.received',
       target: requestId,
-      payload: { email, tenant: actualTenant, lpId: actualLpId },
+      payload: { email, tenant: actualTenant, lpId: actualLpId, link, hasSecretKey: !!secretKey },
       ts: serverTimestamp(),
     });
 
+    // CMS側でメール送信を行うため、URL設定時に自動送信される
     return NextResponse.json({
       ok: true,
-      message: 'Mail sent',
+      message: 'Claim request received and saved',
       requestId,
-      link: generatedLink,
+      link: link,
     });
 
   } catch (error) {
     console.error('LP form error:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { ok: false, error: 'Internal server error' },
       { status: 500 }
     );
   }

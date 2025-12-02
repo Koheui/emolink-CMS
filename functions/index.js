@@ -12,9 +12,21 @@ exports.nextjs = functions.https.onRequest((req, res) => {
   handle(req, res, parsedUrl);
 });
 
-// Stripe Webhook関数をエクスポート
-const { stripeWebhook } = require('./src/stripe-webhook');
-exports.stripeWebhook = stripeWebhook;
+// Stripe Webhook関数をエクスポート（コンパイル後のパス）
+try {
+  const { stripeWebhook } = require('./lib/functions/src/stripe-webhook');
+  exports.stripeWebhook = stripeWebhook;
+} catch (e) {
+  console.warn('stripe-webhook not found, skipping');
+}
+
+// 公開ページURL設定とメール送信API（コンパイル後のパス）
+try {
+  const { claimSetUrls } = require('./lib/functions/src/claim-set-urls');
+  exports.claimSetUrls = claimSetUrls;
+} catch (e) {
+  console.warn('claim-set-urls not found, skipping');
+}
 
 // メール送信用のCloud Function
 exports.sendLoginEmail = functions.https.onCall(async (data, context) => {

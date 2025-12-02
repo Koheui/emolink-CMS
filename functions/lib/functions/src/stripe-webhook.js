@@ -37,13 +37,15 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.stripeWebhook = void 0;
-const functions = __importStar(require("firebase-functions"));
+const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
 const stripe_1 = __importDefault(require("stripe"));
 const secret_key_utils_1 = require("../../src/lib/secret-key-utils");
 const email_service_1 = require("./email-service");
 // Stripe設定
-const stripe = new stripe_1.default(functions.config().stripe.secret_key, {
+// functions.config()は実行時にのみ利用可能なため、環境変数を使用
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
+const stripe = new stripe_1.default(stripeSecretKey, {
     apiVersion: '2023-10-16',
 });
 const db = admin.firestore();
@@ -53,11 +55,12 @@ const db = admin.firestore();
  */
 exports.stripeWebhook = functions.https.onRequest(async (req, res) => {
     const sig = req.headers['stripe-signature'];
-    const endpointSecret = functions.config().stripe.webhook_secret;
+    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
     let event;
     try {
         // Webhook署名の検証
-        event = stripe.webhooks.constructEvent(req.rawBody, sig, endpointSecret);
+        const rawBody = req.rawBody || JSON.stringify(req.body);
+        event = stripe.webhooks.constructEvent(rawBody, sig, endpointSecret);
     }
     catch (err) {
         console.error('Webhook signature verification failed:', err);

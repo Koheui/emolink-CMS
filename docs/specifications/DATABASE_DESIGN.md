@@ -18,6 +18,69 @@
 
 **重要**: すべてのデータは必ず**テナント（店舗）で分離**され、異なる企業・店舗のデータが混在しないように設計されています。
 
+## 🏢 企業ID（companyId）と店舗ID（tenantId）の分離
+
+### 基本方針
+
+**企業ID（companyId）と店舗ID（tenantId）は必ず分離します。**
+
+同じ企業でも販売店が違う場合は、異なる`tenantId`を使用します。
+
+### 階層構造
+
+```
+企業（Company）
+  └─ 店舗1（Tenant 1）
+  └─ 店舗2（Tenant 2）
+  └─ 店舗3（Tenant 3）
+```
+
+### データ分離
+
+すべてのデータは**店舗ID（tenantId）で分離**されます：
+
+- `memories`: `tenant`フィールドに`tenantId`を保存
+- `orders`: `tenant`フィールドに`tenantId`を保存
+- `claimRequests`: `tenant`フィールドに`tenantId`を保存
+- `users`: `tenant`フィールドに`tenantId`を保存
+
+### APIパラメータ
+
+#### 推奨（新規実装）
+
+```typescript
+// 店舗ID（tenantId）を使用
+GET /api/admin/customers?tenantId=store-001
+DELETE /api/admin/customers/:customerId?tenantId=store-001
+```
+
+#### 後方互換性（既存実装）
+
+```typescript
+// companyIdも受け付けるが、非推奨
+GET /api/admin/customers?companyId=company-001  // ⚠️ 非推奨
+```
+
+**注意**: `companyId`パラメータは後方互換性のため受け付けますが、内部的には`tenantId`として扱われます。
+
+### パラメータの優先順位
+
+APIでは以下の優先順位で処理されます：
+
+1. `tenantId`（推奨）
+2. `companyId`（非推奨、後方互換性のため）
+
+```typescript
+const finalTenantId = (tenantId as string) || (companyId as string);
+```
+
+### マルチテナント安全性
+
+異なる`tenantId`のデータは削除されません：
+
+- 同じ企業（`companyId`）でも、異なる店舗（`tenantId`）のデータは保護される
+- 削除処理では、削除対象の`tenantId`のデータのみを削除
+
 ---
 
 ## 🗂️ コレクション一覧
@@ -434,6 +497,9 @@ const q = query(
   emailHeaderSubtitle?: string; // メールヘッダーサブタイトル
   emailMainMessage?: string;    // メール本文メッセージ
   emailFooterMessage?: string;  // メールフッターメッセージ
+  
+  // 販売店管理用情報
+  notes?: string;                // 備考（お客様番号など、販売店ごとの管理用）
   
   createdAt: Date;
   updatedAt: Date;
@@ -931,6 +997,236 @@ service cloud.firestore {
 
 ---
 
+## 🗑️ 顧客削除ポリシー（本番環境）
+
+### 基本方針
+
+**異なる企業ID（tenant）から購入されたユーザーのデータは削除してはいけません。**
+
+### 削除ルール
+
+#### 1. マルチテナント安全性チェック
+
+削除処理の前に、以下のチェックを実行します：
+
+1. **他のtenantにmemoriesがあるか確認**
+   - `memories`コレクションで`ownerUid`を検索
+   - 異なる`tenant`のmemoriesが存在する場合は削除を拒否
+
+2. **他のtenantにordersがあるか確認**
+   - `orders`コレクションで`email`を検索
+   - 異なる`tenant`のordersが存在する場合は削除を拒否
+
+3. **他のtenantにclaimRequestsがあるか確認**
+   - `claimRequests`コレクションで`email`を検索
+   - 異なる`tenant`のclaimRequestsが存在する場合は削除を拒否
+
+4. **他のtenantにusersがあるか確認**
+   - `users`コレクションで`uid`を検索
+   - `tenants`配列に他のtenantが含まれている場合は削除を拒否
+
+#### 2. 削除可能なケース
+
+以下の条件を**すべて**満たす場合のみ削除可能：
+
+- ✅ 削除対象のtenantにのみデータが存在する
+- ✅ 他のtenantにデータが存在しない
+- ✅ 削除対象のclaimRequestに関連するデータのみを削除
+
+#### 3. 削除できないケース
+
+以下のいずれかに該当する場合は削除を拒否：
+
+- ❌ 他のtenantにmemoriesが存在する
+- ❌ 他のtenantにordersが存在する
+- ❌ 他のtenantにclaimRequestsが存在する
+- ❌ `users`コレクションの`tenants`配列に他のtenantが含まれている
+
+### 削除処理のフロー
+
+```
+1. マルチテナント安全性チェック
+   ├─ 他のtenantにmemoriesがあるか？
+   ├─ 他のtenantにordersがあるか？
+   ├─ 他のtenantにclaimRequestsがあるか？
+   └─ 他のtenantにusersがあるか？
+   
+2. チェック結果
+   ├─ 他のtenantにデータがある → 削除を拒否（403エラー）
+   └─ 他のtenantにデータがない → 削除処理を続行
+   
+3. 削除処理
+   ├─ 削除対象のclaimRequestに関連するデータのみを削除
+   ├─ memories: claimRequestData.memoryId と orders の memoryId のみ
+   ├─ publicPages: 関連するpublicPageIdのみ
+   ├─ assets: 関連するmemoryIdのassetsのみ
+   └─ users: tenants配列から該当tenantを削除（複数tenantの場合）
+```
+
+### usersコレクションの処理
+
+#### ケース1: 複数のtenantに属している場合
+```typescript
+// tenants配列から該当tenantを削除
+{
+  tenants: ['tenant1', 'tenant2', 'tenant3']  // tenant2を削除
+  → tenants: ['tenant1', 'tenant3']
+}
+```
+
+#### ケース2: 単一tenantの場合
+```typescript
+// usersコレクションを完全削除
+users/{uid} → 削除
+```
+
+### エラーレスポンス
+
+他のtenantにデータが存在する場合、以下のエラーを返します：
+
+```json
+{
+  "success": false,
+  "error": "このユーザーは他の企業（テナント）からもサービスを購入しているため、削除できません",
+  "details": {
+    "message": "異なる企業ID（tenant）から購入されたユーザーのデータは削除できません。",
+    "otherTenants": ["tenant2", "tenant3"],
+    "otherTenantDataCounts": {
+      "memories": 5,
+      "orders": 3,
+      "claimRequests": 2,
+      "users": 1
+    },
+    "suggestion": "このテナントに関連するデータのみを削除する場合は、個別の思い出ページを削除してください。"
+  }
+}
+```
+
+### 個別の思い出ページの削除
+
+複数のページを所有しているユーザーの場合、個別の思い出ページのみを削除できます：
+
+```
+DELETE /api/admin/customers/:customerId?tenantId=xxx&memoryId=yyy
+```
+
+この場合：
+- ✅ 指定された`memoryId`のみが削除される
+- ✅ 他のmemoriesは削除されない
+- ✅ 他のtenantのデータは影響を受けない
+
+### セキュリティ考慮事項
+
+1. **テナント分離の徹底**
+   - 削除処理は必ず`tenant`フィールドでフィルタリング
+   - 他のtenantのデータにアクセスしない
+
+2. **削除前の確認**
+   - 削除前に必ずマルチテナントチェックを実行
+   - チェック結果をログに記録
+
+3. **監査ログ**
+   - 削除処理の実行を監査ログに記録
+   - 削除されたデータの詳細を記録
+
+---
+
+## 🔄 データ復旧ガイド
+
+### 緊急: 誤って削除されたデータの復旧方法
+
+#### 復旧に必要な情報
+
+以下の情報を確認してください：
+
+1. **削除されたユーザーの情報**
+   - Emailアドレス
+   - `claimedByUid` (ownerUid)
+   - テナントID
+
+2. **削除されたデータの種類**
+   - `memories` コレクション
+   - `publicPages` コレクション
+   - `assets` コレクション
+   - `orders` コレクション
+   - `claimRequests` コレクション
+
+#### 復旧方法
+
+##### 方法1: バックアップから復元（推奨）
+
+1. **最新のバックアップを確認**
+   ```bash
+   ls -la backups/
+   ```
+
+2. **特定のコレクションを復元**
+   ```bash
+   node scripts/restore-firestore.js --backup=backup-YYYY-MM-DD --collections=memories,publicPages,assets
+   ```
+
+3. **ドライランで確認（推奨）**
+   ```bash
+   node scripts/restore-firestore.js --backup=backup-YYYY-MM-DD --collections=memories --dry-run
+   ```
+
+##### 方法2: Firebase Storageから復元
+
+Firebase Storageのファイルが残っている場合、そこから情報を復元できます。
+
+1. **Storageのパスを確認**
+   - `users/{uid}/memories/{memoryId}/uploads/`
+   - `deliver/publicPages/{pageId}/`
+
+2. **Storageからファイルを取得**
+   ```bash
+   gsutil -m cp -r gs://your-bucket/users/{uid}/memories/ ./recovered-memories/
+   ```
+
+##### 方法3: Audit Logsから情報を取得
+
+削除処理のauditLogsに削除されたデータの情報が残っている可能性があります。
+
+1. **Audit Logsを確認**
+   - Firebase Console または Functions のログから削除処理のログを確認
+
+2. **削除されたmemoryIdを特定**
+   - ログに `📋 削除対象memoryId:` が記録されている
+
+#### 重要な注意事項
+
+1. **復元前に現在の状態をバックアップ**
+   ```bash
+   node scripts/backup-firestore.js --output=backup-before-recovery
+   ```
+
+2. **部分的な復元を推奨**
+   - 全てのデータを一度に復元せず、必要なコレクションのみを復元
+   - `memories` → `publicPages` → `assets` の順で復元
+
+3. **データの整合性を確認**
+   - 復元後、関連するデータの整合性を確認
+   - `memories` と `publicPages` の関連性
+   - `assets` と `memories` の関連性
+
+#### 復旧に必要な最小限のデータ
+
+- **必須（復旧が必要）**
+  1. `memories` - 想い出ページの基本情報
+  2. `publicPages` - 公開ページの情報
+  3. `assets` - 画像・動画などのアセット情報
+
+- **重要（可能であれば復旧）**
+  4. `orders` - 注文情報（必要に応じて）
+  5. `users` - ユーザー情報（UID、emailなど）
+
+- **オプショナル（復旧不要）**
+  - `claimRequests` - リクエスト情報
+  - `auditLogs` - 監査ログ
+  - `mail` - メール送信履歴
+
+---
+
 ## 📚 関連ドキュメント
 
 - [CRM_DATABASE_STRUCTURE.md](./CRM_DATABASE_STRUCTURE.md) - CRM構築用データベース構造
@@ -944,6 +1240,8 @@ service cloud.firestore {
 - 2024-01-XX: 初版作成
 - 2024-01-XX: `users`と`staff`コレクションを分離
 - 2024-01-XX: テナント分離の原則を明確化
+- 2024-12-XX: 企業ID（companyId）と店舗ID（tenantId）の分離を明確化
+- 2024-12-XX: 顧客削除ポリシーとデータ復旧ガイドを追加
 
 ---
 

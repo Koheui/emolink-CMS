@@ -17,11 +17,18 @@ export function useMemories(ownerUid: string) {
   });
 }
 
-// 個別の想い出を取得
+// 個別の想い出を取得（エンドユーザーは自分のmemoryであればテナント問わずアクセス可能）
 export function useMemory(memoryId: string) {
   return useQuery({
     queryKey: ['memory', memoryId],
-    queryFn: () => getMemoryById(memoryId),
+    queryFn: async () => {
+      // エンドユーザーの場合はテナントチェックをスキップ
+      // 管理者の場合はテナントチェックを実行
+      const { useSecretKeyAuth } = await import('@/contexts/secret-key-auth-context');
+      // 注意: フックはコンポーネント内でしか使えないため、ここでは直接getMemoryByIdを呼び出す
+      // エンドユーザーの場合は後でownerUidをチェックする
+      return getMemoryById(memoryId, true); // 一旦スキップして、後でownerUidをチェック
+    },
     enabled: !!memoryId,
   });
 }

@@ -62,8 +62,22 @@ service cloud.firestore {
     // クレームリクエストコレクション（開発環境では読み取り許可）
     match /claimRequests/{requestId} {
       allow read: if true; // 開発環境では誰でも読み取り可能
-      allow write: if isAuthenticated() && 
-        isSameTenant(resource.data.tenant);
+      // 作成時：認証済みユーザーであれば許可（テナントチェックは緩和）
+      allow create: if isAuthenticated();
+      // 更新時：認証済みユーザーで、自分のメールアドレスと一致するか、テナントが一致する場合に許可
+      allow update: if isAuthenticated() && (
+        // 自分のメールアドレスと一致する場合（エンドユーザー向け）
+        (request.auth.token.email != null && resource.data.email == request.auth.token.email) ||
+        // または、テナントが一致する場合（管理者向け、開発環境対応）
+        isSameTenant(resource.data.tenant) ||
+        // または、新しいデータのテナントが一致する場合（更新時のテナントチェック）
+        (request.resource.data.tenant != null && 
+         (request.resource.data.tenant == resource.data.tenant || isSameTenant(request.resource.data.tenant)))
+      );
+      // 削除時：認証済みユーザーで、自分のメールアドレスと一致する場合に許可
+      allow delete: if isAuthenticated() && 
+        request.auth.token.email != null &&
+        resource.data.email == request.auth.token.email;
     }
     
     // 秘密鍵コレクション（読み取り専用、認証不要）

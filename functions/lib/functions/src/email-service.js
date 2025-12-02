@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -6,13 +39,35 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendSecretKeyEmail = sendSecretKeyEmail;
 exports.sendOrderCompletionEmail = sendOrderCompletionEmail;
 exports.sendCustomerLoginEmail = sendCustomerLoginEmail;
+exports.sendPublicPageConfirmationEmail = sendPublicPageConfirmationEmail;
 const nodemailer_1 = __importDefault(require("nodemailer"));
+const functions = __importStar(require("firebase-functions/v1"));
 // メール送信設定
+// Firebase Functions Configから取得、なければ環境変数から取得
+const getGmailConfig = () => {
+    try {
+        // @ts-ignore - functions.config()の型定義の問題を回避
+        const config = functions.config();
+        return config === null || config === void 0 ? void 0 : config.gmail;
+    }
+    catch (e) {
+        return null;
+    }
+};
+const gmailConfig = getGmailConfig();
+const gmailUser = (gmailConfig === null || gmailConfig === void 0 ? void 0 : gmailConfig.user) || process.env.GMAIL_USER;
+const gmailPassword = (gmailConfig === null || gmailConfig === void 0 ? void 0 : gmailConfig.app_password) || process.env.GMAIL_APP_PASSWORD;
+// デバッグログ（本番環境では削除推奨）
+console.log('Gmail config loaded:', {
+    hasConfig: !!gmailConfig,
+    user: gmailUser ? `${gmailUser.substring(0, 5)}...` : 'NOT SET',
+    password: gmailPassword ? 'SET' : 'NOT SET'
+});
 const transporter = nodemailer_1.default.createTransport({
     service: 'gmail',
     auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_APP_PASSWORD
+        user: gmailUser,
+        pass: gmailPassword
     }
 });
 const tenantEmailConfigs = {
@@ -179,8 +234,9 @@ async function sendCustomerLoginEmail(email, secretKey, loginUrl, options) {
     // テナント設定を取得
     const config = tenantEmailConfigs[tenantId] || tenantEmailConfigs['default'];
     const customerName = (customerInfo === null || customerInfo === void 0 ? void 0 : customerInfo.name) ? `${customerInfo.name} 様` : 'お客様';
+    const mailFrom = (gmailConfig === null || gmailConfig === void 0 ? void 0 : gmailConfig.user) || process.env.MAIL_FROM || 'noreply@emolink.net';
     const mailOptions = {
-        from: process.env.MAIL_FROM || 'noreply@emolink.net',
+        from: mailFrom,
         to: email,
         subject: `${config.brandName}へようこそ - ログイン情報`,
         html: `
@@ -269,6 +325,127 @@ async function sendCustomerLoginEmail(email, secretKey, loginUrl, options) {
     }
     catch (error) {
         console.error('Error sending customer login email:', error);
+        throw error;
+    }
+}
+/**
+ * 公開ページ確定通知メール（ログイン情報と公開ページURLを含む）
+ */
+async function sendPublicPageConfirmationEmail(email, loginUrl, loginEmail, loginPassword, publicPageUrl, options) {
+    const customerInfo = (options === null || options === void 0 ? void 0 : options.customerInfo) || {};
+    const tenantId = (options === null || options === void 0 ? void 0 : options.tenantId) || 'default';
+    // テナント設定を取得
+    const config = tenantEmailConfigs[tenantId] || tenantEmailConfigs['default'];
+    const customerName = (customerInfo === null || customerInfo === void 0 ? void 0 : customerInfo.name) ? `${customerInfo.name} 様` : 'お客様';
+    const mailFrom = (gmailConfig === null || gmailConfig === void 0 ? void 0 : gmailConfig.user) || process.env.MAIL_FROM || 'noreply@emolink.net';
+    const mailOptions = {
+        from: mailFrom,
+        to: email,
+        subject: `${config.brandName} - 公開ページが確定しました`,
+        html: `
+      <div style="font-family: 'Hiragino Sans', 'Meiryo', 'Yu Gothic', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #333; font-size: 24px; margin: 0;">公開ページが確定しました</h1>
+        </div>
+        
+        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+          <p style="font-size: 16px; color: #555; margin: 0;">
+            ${customerName}<br>
+            想い出ページの公開ページURLが確定いたしました。<br>
+            以下の情報でログインして、想い出ページを編集・管理していただけます。
+          </p>
+        </div>
+        
+        <div style="background: #fff; border: 2px solid ${config.primaryColor}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+          <h3 style="color: ${config.primaryColor}; margin-top: 0; font-size: 18px;">🔑 ログイン情報</h3>
+          
+          <div style="margin-bottom: 20px;">
+            <p style="margin: 10px 0; font-size: 14px; color: #666; font-weight: bold;">
+              ログイン用URL:
+            </p>
+            <div style="background: #f5f5f5; padding: 15px; border-radius: 4px; margin-bottom: 15px; word-break: break-all;">
+              <a href="${loginUrl}" style="color: ${config.primaryColor}; text-decoration: none; font-size: 14px;">${loginUrl}</a>
+            </div>
+          </div>
+          
+          <div style="margin-bottom: 20px;">
+            <p style="margin: 10px 0; font-size: 14px; color: #666; font-weight: bold;">
+              ログインメールアドレス:
+            </p>
+            <div style="background: #f5f5f5; padding: 15px; border-radius: 4px; margin-bottom: 15px; font-family: monospace; font-size: 14px; color: #333;">
+              ${loginEmail}
+            </div>
+          </div>
+          
+          <div style="margin-bottom: 20px;">
+            <p style="margin: 10px 0; font-size: 14px; color: #666; font-weight: bold;">
+              ログインパスワード:
+            </p>
+            <div style="background: #f5f5f5; padding: 15px; text-align: center; font-family: monospace; font-size: 18px; letter-spacing: 2px; border-radius: 4px; font-weight: bold; color: ${config.primaryColor};">
+              ${loginPassword}
+            </div>
+          </div>
+        </div>
+        
+        <div style="background: #e7f3ff; border: 2px solid ${config.primaryColor}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+          <h3 style="color: ${config.primaryColor}; margin-top: 0; font-size: 18px;">🌐 公開ページURL</h3>
+          <p style="margin: 10px 0; font-size: 14px; color: #666;">
+            以下のURLで想い出ページを公開しています。NFCタグやQRコードからアクセスできます。
+          </p>
+          <div style="background: #f5f5f5; padding: 15px; border-radius: 4px; margin-top: 15px; word-break: break-all;">
+            <a href="${publicPageUrl}" style="color: ${config.primaryColor}; text-decoration: none; font-size: 14px; font-weight: bold;">${publicPageUrl}</a>
+          </div>
+        </div>
+        
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${loginUrl}" style="background: ${config.primaryColor}; color: white; padding: 15px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; font-size: 16px; margin-right: 10px;">
+            ログインページを開く
+          </a>
+          <a href="${publicPageUrl}" style="background: #28a745; color: white; padding: 15px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; font-size: 16px;">
+            公開ページを確認
+          </a>
+        </div>
+        
+        <div style="background: #e7f3ff; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+          <h3 style="color: #004085; margin-top: 0; font-size: 16px;">📝 利用方法</h3>
+          <ol style="margin: 0; padding-left: 20px; color: #333; line-height: 1.8;">
+            <li>ログイン用URLからログインページを開く</li>
+            <li>メールアドレスとパスワードでログイン</li>
+            <li>想い出ページを編集・管理</li>
+            <li>公開ページURLをNFCタグやQRコードに設定</li>
+          </ol>
+        </div>
+        
+        <div style="background: #fff3cd; padding: 15px; border-radius: 4px; margin-bottom: 20px; border-left: 4px solid #ffc107;">
+          <p style="margin: 0; color: #856404; font-size: 14px; line-height: 1.6;">
+            <strong>⚠️ 重要:</strong> ログイン情報は大切に保管してください。パスワードを忘れた場合は、サポートまでお問い合わせください。
+          </p>
+        </div>
+        
+        <div style="background: #d4edda; padding: 15px; border-radius: 4px; margin-bottom: 20px; border-left: 4px solid #28a745;">
+          <p style="margin: 0; color: #155724; font-size: 14px; line-height: 1.6;">
+            <strong>💡 ヒント:</strong> 公開ページURLはNFCタグやQRコードに設定することで、スマートフォンで簡単にアクセスできます。
+          </p>
+        </div>
+        
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666; line-height: 1.6;">
+          <p style="margin: 0 0 10px 0;">このメールは自動送信されています。返信はできません。</p>
+          <p style="margin: 0;">ご不明な点がございましたら、サポートまでお問い合わせください。</p>
+          <p style="margin: 10px 0 0 0; font-size: 11px; color: #999;">
+            ${config.companyName} (${config.brandName})<br>
+            Email: ${config.supportEmail}
+          </p>
+        </div>
+      </div>
+    `
+    };
+    try {
+        await transporter.sendMail(mailOptions);
+        console.log('Public page confirmation email sent successfully to:', email);
+        return { success: true };
+    }
+    catch (error) {
+        console.error('Error sending public page confirmation email:', error);
         throw error;
     }
 }

@@ -15,7 +15,7 @@ import { Memory } from '@/types';
 import { updateMemory, deleteMemory } from '@/lib/firestore';
 
 export default function DashboardPage() {
-  const { user, loading, currentTenant, isAuthenticated, isAdmin } = useSecretKeyAuth();
+  const { user, loading, currentTenant, isAuthenticated, isAdmin, isSuperAdmin } = useSecretKeyAuth();
   const router = useRouter();
   const { data: memories = [], isLoading: memoriesLoading, error } = useMemories(user?.uid || '');
   
@@ -261,7 +261,7 @@ export default function DashboardPage() {
                     <FileText className="w-6 h-6" />
                     <span>注文管理</span>
                   </Button>
-                  {user?.role === 'superAdmin' && (
+                  {isSuperAdmin && (
                     <Button
                       variant="outline"
                       onClick={() => router.push('/admin/tenants')}

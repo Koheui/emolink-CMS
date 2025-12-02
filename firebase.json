@@ -8,20 +8,16 @@
   },
   "hosting": {
     "site": "emolink-cms",
-    "public": "out",
+    "source": ".",
     "ignore": [
       "firebase.json",
       "**/.*",
       "**/node_modules/**"
     ],
-    "rewrites": [
-      {
-        "source": "**",
-        "destination": "/index.html"
-      }
-    ],
-    "cleanUrls": true,
-    "trailingSlash": false
+    "frameworksBackend": {
+      "region": "asia-northeast1",
+      "runtime": "nodejs20"
+    }
   },
   "functions": {
     "source": "functions",
