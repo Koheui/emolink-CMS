@@ -2071,16 +2071,6 @@ function CreateMemoryPageContent() {
         <div className="bg-[#1a1a1a] border-b border-white/10 p-4 sm:p-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
           <p className="text-white text-xs">edit</p>
-            {memoryId && (
-              <span className="text-xs text-white/60 bg-[#2a2a2a] px-2 py-1 rounded">
-                edit
-              </span>
-            )}
-            {!memoryId && (
-              <span className="text-xs text-white/60 bg-[#2a2a2a] px-2 py-1 rounded">
-                new
-              </span>
-            )}
           </div>
           <div className="flex items-center gap-3">
             <button
