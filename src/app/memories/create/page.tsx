@@ -109,8 +109,10 @@ function CreateMemoryPageContent() {
   }, [authLoading, isAuthenticated, currentUser?.uid, existingMemories, memoryId, memoriesLoading, existingMemoryLoading, router]);
   
   // ログイン後に状態をリセット（再ログイン時に既存のメモリを読み込むため）
+  // 無限ループを防ぐため、useRefでリセット済みフラグを管理
+  const hasResetAfterLogin = useRef(false);
   useEffect(() => {
-    if (!authLoading && isAuthenticated && currentUser?.uid) {
+    if (!authLoading && isAuthenticated && currentUser?.uid && !hasResetAfterLogin.current) {
       console.log('=== After Login: Resetting load flags ===');
       console.log('memoryId from URL:', memoryId);
       console.log('hasLoadedMemory before reset:', hasLoadedMemory);
@@ -122,13 +124,15 @@ function CreateMemoryPageContent() {
         console.log('Resetting load flags to reload memory after login');
         setHasLoadedMemory(false);
         setLastLoadedMemoryId(null);
+        hasResetAfterLogin.current = true;
       }
     }
-  }, [authLoading, isAuthenticated, currentUser?.uid, memoryId, hasLoadedMemory, lastLoadedMemoryId]);
+  }, [authLoading, isAuthenticated, currentUser?.uid, memoryId]);
   
-  // デバッグ用: ログイン後の状態を確認
+  // デバッグ用: ログイン後の状態を確認（無限ループを防ぐため、条件を厳しくする）
+  const debugLogged = useRef(false);
   useEffect(() => {
-    if (!authLoading && isAuthenticated && currentUser?.uid) {
+    if (!authLoading && isAuthenticated && currentUser?.uid && !debugLogged.current) {
       console.log('=== After Login Debug ===');
       console.log('memoryId from URL:', memoryId);
       console.log('existingMemory:', existingMemory);
@@ -136,8 +140,9 @@ function CreateMemoryPageContent() {
       console.log('existingMemories count:', existingMemories.length);
       console.log('hasLoadedMemory:', hasLoadedMemory);
       console.log('lastLoadedMemoryId:', lastLoadedMemoryId);
+      debugLogged.current = true;
     }
-  }, [authLoading, isAuthenticated, currentUser?.uid, memoryId, existingMemory, existingMemoryLoading, existingMemories.length, hasLoadedMemory, lastLoadedMemoryId]);
+  }, [authLoading, isAuthenticated, currentUser?.uid]);
   
   // デバッグ用: メモリ取得結果をログ出力
   useEffect(() => {
@@ -310,53 +315,24 @@ function CreateMemoryPageContent() {
     return () => clearInterval(retryInterval);
   }, []);
   
+  // 無限ループを防ぐため、useRefで読み込み済みフラグを管理
+  const memoryLoadRef = useRef<string | null>(null);
+  
   useEffect(() => {
-    console.log('=== useEffect: Loading existing memory ===');
-    console.log('memoryId:', memoryId);
-    console.log('existingMemory:', existingMemory);
-    console.log('currentUser:', currentUser);
-    console.log('loading:', loading);
-    console.log('hasLoadedMemory:', hasLoadedMemory);
-    console.log('lastLoadedMemoryId:', lastLoadedMemoryId);
-    
     // 保存処理中は読み込み処理を実行しない
     if (loading) {
-      console.log('Save process in progress, skipping load');
       return;
     }
     
-    // memoryIdが変更された場合、または既に読み込み済みでない場合のみ読み込み
-    // 同じmemoryIdで既に読み込み済みの場合は、existingMemoryが更新されたときのみ再読み込み
-    console.log('=== useEffect check ===');
-    console.log('memoryId:', memoryId);
-    console.log('existingMemory:', existingMemory);
-    console.log('existingMemoryLoading:', existingMemoryLoading);
-    console.log('currentUser:', currentUser?.uid);
-    console.log('hasLoadedMemory:', hasLoadedMemory);
-    console.log('lastLoadedMemoryId:', lastLoadedMemoryId);
-    
     if (memoryId && existingMemory && currentUser) {
-      // memoryIdが変更された場合は、読み込み済みフラグをリセット
-      if (lastLoadedMemoryId !== memoryId) {
-        console.log('Memory ID changed, resetting load flag');
-        setHasLoadedMemory(false);
-        setLastLoadedMemoryId(memoryId);
-      }
-      
-      // 既に読み込み済みで、existingMemoryが変更されていない場合はスキップ
-      // ただし、blocksが空の場合は再読み込みする（再ログイン後の場合など）
-      if (hasLoadedMemory && lastLoadedMemoryId === memoryId) {
-        // blocksが空でない場合はスキップ
-        const currentBlocks = (existingMemory.blocks as any) || [];
-        if (currentBlocks.length > 0) {
-          console.log('Already loaded this memory with blocks, skipping');
-          return;
-        } else {
-          console.log('Memory already loaded but blocks is empty, reloading...');
-          // blocksが空の場合は再読み込み
-          setHasLoadedMemory(false);
-        }
-      }
+      // memoryIdが変更された場合のみ読み込み
+      if (memoryLoadRef.current !== memoryId) {
+        console.log('=== useEffect: Loading existing memory ===');
+        console.log('memoryId:', memoryId);
+        console.log('existingMemory:', existingMemory);
+        console.log('currentUser:', currentUser?.uid);
+        
+        memoryLoadRef.current = memoryId;
       // 既存のmemoryデータでstateを初期化
       setTitle(existingMemory.title || '');
       setDescription(existingMemory.description || '');
@@ -387,74 +363,52 @@ function CreateMemoryPageContent() {
       console.log('Filtered mediaBlocks count:', mediaBlocks.length);
       console.log('MediaBlocks with URLs:', mediaBlocks.filter(b => b.url).map(b => ({ id: b.id, type: b.type, hasUrl: !!b.url, url: b.url?.substring(0, 50) })));
       
-      // 保存処理中でない場合のみ、mediaBlocksを更新
-      // 保存処理中にuseEffectが実行されると、mediaBlocksが空の状態で上書きされる可能性がある
-      // ただし、blocksが空でない場合は、保存処理中でも更新する（リロード時の読み込みのため）
-      if (!loading || (loading && mediaBlocks.length > 0)) {
+        // 保存処理中でない場合のみ、mediaBlocksを更新
         console.log('Setting mediaBlocks', { loading, mediaBlocksCount: mediaBlocks.length });
         setMediaBlocks(mediaBlocks);
         // refも同時に更新
         mediaBlocksRef.current = mediaBlocks;
-        setHasLoadedMemory(true);
-      } else {
-        console.log('Skipping setMediaBlocks (save process in progress and blocks is empty)');
-      }
-    } else {
-      console.log('=== useEffect: Conditions not met ===');
-      console.log('memoryId exists:', !!memoryId);
-      console.log('existingMemory exists:', !!existingMemory);
-      console.log('currentUser exists:', !!currentUser);
-      if (!memoryId) {
-        console.log('Reason: memoryId is missing');
-      }
-      if (!existingMemory) {
-        console.log('Reason: existingMemory is missing', { existingMemoryLoading });
-      }
-      if (!currentUser) {
-        console.log('Reason: currentUser is missing');
-      }
-    }
-    
-    if (memoryId && existingMemory && currentUser) {
-      setAccentColor(existingMemory.colors?.accent || '#08af86');
-      setTextColor(existingMemory.colors?.text || '#ffffff');
-      setBackgroundColor(existingMemory.colors?.background || '#000f24');
-      setTitleFontSize(existingMemory.fontSizes?.title || 35);
-      setBodyFontSize(existingMemory.fontSizes?.body || 16);
-      setTopicsTitle(existingMemory.topicsTitle || 'Topics');
-      
-      // 公開ページIDをstateに設定
-      // 優先順位: existingMemory.publicPageId > sessionStorageのinitialSetupPublicPageId > currentPublicPageId
-      if (existingMemory.publicPageId) {
-        console.log('Setting currentPublicPageId from existingMemory:', existingMemory.publicPageId);
-        setCurrentPublicPageId(existingMemory.publicPageId);
-      } else if (typeof window !== 'undefined') {
-        const initialSetupPublicPageId = sessionStorage.getItem('initialSetupPublicPageId');
-        if (initialSetupPublicPageId && !currentPublicPageId) {
-          console.log('Setting currentPublicPageId from sessionStorage:', initialSetupPublicPageId);
-          setCurrentPublicPageId(initialSetupPublicPageId);
-        }
-      }
-      
-      // ストレージ使用量を計算（既存のstorageUsedがない場合、blocksから計算）
-      let calculatedStorage = existingMemory.storageUsed || 0;
-      if (!existingMemory.storageUsed && mediaBlocks.length > 0) {
-        calculatedStorage = mediaBlocks.reduce((sum, block) => {
-          if (block.type === 'album' && block.albumItems) {
-            return sum + block.albumItems.reduce((itemSum, item) => itemSum + (item.fileSize || 0), 0);
-          } else if (block.fileSize) {
-            return sum + block.fileSize;
+        
+        // 色設定とフォントサイズを設定
+        setAccentColor(existingMemory.colors?.accent || '#08af86');
+        setTextColor(existingMemory.colors?.text || '#ffffff');
+        setBackgroundColor(existingMemory.colors?.background || '#000f24');
+        setTitleFontSize(existingMemory.fontSizes?.title || 35);
+        setBodyFontSize(existingMemory.fontSizes?.body || 16);
+        setTopicsTitle(existingMemory.topicsTitle || 'Topics');
+        
+        // 公開ページIDをstateに設定
+        // 優先順位: existingMemory.publicPageId > sessionStorageのinitialSetupPublicPageId > currentPublicPageId
+        if (existingMemory.publicPageId) {
+          console.log('Setting currentPublicPageId from existingMemory:', existingMemory.publicPageId);
+          setCurrentPublicPageId(existingMemory.publicPageId);
+        } else if (typeof window !== 'undefined') {
+          const initialSetupPublicPageId = sessionStorage.getItem('initialSetupPublicPageId');
+          if (initialSetupPublicPageId && !currentPublicPageId) {
+            console.log('Setting currentPublicPageId from sessionStorage:', initialSetupPublicPageId);
+            setCurrentPublicPageId(initialSetupPublicPageId);
           }
-          return sum;
-        }, 0);
+        }
+        
+        // ストレージ使用量を計算（既存のstorageUsedがない場合、blocksから計算）
+        let calculatedStorage = existingMemory.storageUsed || 0;
+        if (!existingMemory.storageUsed && mediaBlocks.length > 0) {
+          calculatedStorage = mediaBlocks.reduce((sum, block) => {
+            if (block.type === 'album' && block.albumItems) {
+              return sum + block.albumItems.reduce((itemSum, item) => itemSum + (item.fileSize || 0), 0);
+            } else if (block.fileSize) {
+              return sum + block.fileSize;
+            }
+            return sum;
+          }, 0);
+        }
+        setStorageUsed(calculatedStorage);
       }
-      setStorageUsed(calculatedStorage);
     } else if (!memoryId) {
       // memoryIdがない場合は、読み込み済みフラグをリセット
-      setHasLoadedMemory(false);
-      setLastLoadedMemoryId(null);
+      memoryLoadRef.current = null;
     }
-  }, [memoryId, existingMemory, currentUser, loading, hasLoadedMemory, lastLoadedMemoryId]);
+  }, [memoryId, existingMemory, currentUser, loading]);
   
   // ログインフォーム用のstate（条件分岐の前に定義）
   const [loginEmail, setLoginEmail] = useState('');
