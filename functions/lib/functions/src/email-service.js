@@ -437,8 +437,8 @@ async function sendPublicPageConfirmationEmail(email, loginUrl, loginEmail, logi
           <p style="margin: 0 0 10px 0;">このメールは自動送信されています。返信はできません。</p>
           <p style="margin: 0;">ご不明な点がございましたら、サポートまでお問い合わせください。</p>
           <p style="margin: 10px 0 0 0; font-size: 11px; color: #999;">
-            ${config.companyName} (${config.brandName})<br>
-            Email: ${config.supportEmail}
+            emolink （運営会社：Future Studio 株式会社）<br>
+            Email: office@futurestudio.co.jp
           </p>
         </div>
       </div>
