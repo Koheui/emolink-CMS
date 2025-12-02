@@ -317,6 +317,9 @@ function CreateMemoryPageContent() {
   
   // 無限ループを防ぐため、useRefで読み込み済みフラグを管理
   const memoryLoadRef = useRef<string | null>(null);
+  const titleInitializedRef = useRef(false);
+  const descriptionInitializedRef = useRef(false);
+  const bioInitializedRef = useRef(false);
   
   useEffect(() => {
     // 保存処理中は読み込み処理を実行しない
@@ -333,10 +336,25 @@ function CreateMemoryPageContent() {
         console.log('currentUser:', currentUser?.uid);
         
         memoryLoadRef.current = memoryId;
-      // 既存のmemoryデータでstateを初期化
-      setTitle(existingMemory.title || '');
-      setDescription(existingMemory.description || '');
-      setBio(existingMemory.bio || '');
+        // リセットフラグ
+        titleInitializedRef.current = false;
+        descriptionInitializedRef.current = false;
+        bioInitializedRef.current = false;
+      }
+      
+      // 既存のmemoryデータでstateを初期化（初回のみ）
+      if (!titleInitializedRef.current) {
+        setTitle(existingMemory.title || '');
+        titleInitializedRef.current = true;
+      }
+      if (!descriptionInitializedRef.current) {
+        setDescription(existingMemory.description || '');
+        descriptionInitializedRef.current = true;
+      }
+      if (!bioInitializedRef.current) {
+        setBio(existingMemory.bio || '');
+        bioInitializedRef.current = true;
+      }
       setProfileImage(existingMemory.profileImage || null);
       setProfileImagePosition(existingMemory.profileImagePosition || 'center center');
       setProfileImageScale(existingMemory.profileImageScale || 1);
@@ -363,50 +381,52 @@ function CreateMemoryPageContent() {
       console.log('Filtered mediaBlocks count:', mediaBlocks.length);
       console.log('MediaBlocks with URLs:', mediaBlocks.filter(b => b.url).map(b => ({ id: b.id, type: b.type, hasUrl: !!b.url, url: b.url?.substring(0, 50) })));
       
-        // 保存処理中でない場合のみ、mediaBlocksを更新
-        console.log('Setting mediaBlocks', { loading, mediaBlocksCount: mediaBlocks.length });
-        setMediaBlocks(mediaBlocks);
-        // refも同時に更新
-        mediaBlocksRef.current = mediaBlocks;
-        
-        // 色設定とフォントサイズを設定
-        setAccentColor(existingMemory.colors?.accent || '#08af86');
-        setTextColor(existingMemory.colors?.text || '#ffffff');
-        setBackgroundColor(existingMemory.colors?.background || '#000f24');
-        setTitleFontSize(existingMemory.fontSizes?.title || 35);
-        setBodyFontSize(existingMemory.fontSizes?.body || 16);
-        setTopicsTitle(existingMemory.topicsTitle || 'Topics');
-        
-        // 公開ページIDをstateに設定
-        // 優先順位: existingMemory.publicPageId > sessionStorageのinitialSetupPublicPageId > currentPublicPageId
-        if (existingMemory.publicPageId) {
-          console.log('Setting currentPublicPageId from existingMemory:', existingMemory.publicPageId);
-          setCurrentPublicPageId(existingMemory.publicPageId);
-        } else if (typeof window !== 'undefined') {
-          const initialSetupPublicPageId = sessionStorage.getItem('initialSetupPublicPageId');
-          if (initialSetupPublicPageId && !currentPublicPageId) {
-            console.log('Setting currentPublicPageId from sessionStorage:', initialSetupPublicPageId);
-            setCurrentPublicPageId(initialSetupPublicPageId);
-          }
+      // 保存処理中でない場合のみ、mediaBlocksを更新
+      console.log('Setting mediaBlocks', { loading, mediaBlocksCount: mediaBlocks.length });
+      setMediaBlocks(mediaBlocks);
+      // refも同時に更新
+      mediaBlocksRef.current = mediaBlocks;
+      
+      // 色設定とフォントサイズを設定
+      setAccentColor(existingMemory.colors?.accent || '#08af86');
+      setTextColor(existingMemory.colors?.text || '#ffffff');
+      setBackgroundColor(existingMemory.colors?.background || '#000f24');
+      setTitleFontSize(existingMemory.fontSizes?.title || 35);
+      setBodyFontSize(existingMemory.fontSizes?.body || 16);
+      setTopicsTitle(existingMemory.topicsTitle || 'Topics');
+      
+      // 公開ページIDをstateに設定
+      // 優先順位: existingMemory.publicPageId > sessionStorageのinitialSetupPublicPageId > currentPublicPageId
+      if (existingMemory.publicPageId) {
+        console.log('Setting currentPublicPageId from existingMemory:', existingMemory.publicPageId);
+        setCurrentPublicPageId(existingMemory.publicPageId);
+      } else if (typeof window !== 'undefined') {
+        const initialSetupPublicPageId = sessionStorage.getItem('initialSetupPublicPageId');
+        if (initialSetupPublicPageId && !currentPublicPageId) {
+          console.log('Setting currentPublicPageId from sessionStorage:', initialSetupPublicPageId);
+          setCurrentPublicPageId(initialSetupPublicPageId);
         }
-        
-        // ストレージ使用量を計算（既存のstorageUsedがない場合、blocksから計算）
-        let calculatedStorage = existingMemory.storageUsed || 0;
-        if (!existingMemory.storageUsed && mediaBlocks.length > 0) {
-          calculatedStorage = mediaBlocks.reduce((sum, block) => {
-            if (block.type === 'album' && block.albumItems) {
-              return sum + block.albumItems.reduce((itemSum, item) => itemSum + (item.fileSize || 0), 0);
-            } else if (block.fileSize) {
-              return sum + block.fileSize;
-            }
-            return sum;
-          }, 0);
-        }
-        setStorageUsed(calculatedStorage);
       }
+      
+      // ストレージ使用量を計算（既存のstorageUsedがない場合、blocksから計算）
+      let calculatedStorage = existingMemory.storageUsed || 0;
+      if (!existingMemory.storageUsed && mediaBlocks.length > 0) {
+        calculatedStorage = mediaBlocks.reduce((sum, block) => {
+          if (block.type === 'album' && block.albumItems) {
+            return sum + block.albumItems.reduce((itemSum, item) => itemSum + (item.fileSize || 0), 0);
+          } else if (block.fileSize) {
+            return sum + block.fileSize;
+          }
+          return sum;
+        }, 0);
+      }
+      setStorageUsed(calculatedStorage);
     } else if (!memoryId) {
       // memoryIdがない場合は、読み込み済みフラグをリセット
       memoryLoadRef.current = null;
+      titleInitializedRef.current = false;
+      descriptionInitializedRef.current = false;
+      bioInitializedRef.current = false;
     }
   }, [memoryId, existingMemory, currentUser, loading]);
   
@@ -2224,17 +2244,20 @@ function CreateMemoryPageContent() {
       )}
       
       <div className="p-4 sm:p-6 md:p-8">
-      {/* 既存の想い出ページがある場合のヘッダー（エンドユーザー向け） */}
+        {/* 既存の想い出ページがある場合のヘッダー（エンドユーザー向け） */}
       {/* LP経由（isFromClaim === true）の場合は既存メモリの表示を非表示 */}
-      {!isAdmin && existingMemories.length > 0 && !isFromClaim && (
-        <div className="max-w-2xl mx-auto mb-4">
-          <div className="bg-[#1a1a1a] rounded-lg p-4 flex items-center justify-between border border-white/10">
-            <div className="flex items-center space-x-3">
-              <FileText className="w-5 h-5 text-white" />
-              <div>
-                <p className="text-white font-medium">
-                  ほかにもemolinkが {existingMemories.length} 件あります
-                </p>
+      {/* 現在編集中のメモリを除外 */}
+      {(() => {
+        const otherMemories = existingMemories.filter(m => m.id !== memoryId);
+        return !isAdmin && otherMemories.length > 0 && !isFromClaim && (
+          <div className="max-w-2xl mx-auto mb-4">
+            <div className="bg-[#1a1a1a] rounded-lg p-4 flex items-center justify-between border border-white/10">
+              <div className="flex items-center space-x-3">
+                <FileText className="w-5 h-5 text-white" />
+                <div>
+                  <p className="text-white font-medium">
+                    ほかにもemolinkが {otherMemories.length} 件あります
+                  </p>
                 <p className="text-white/80 text-sm">
                   複数のLPから作成したページもすべて表示されます
                 </p>
@@ -2250,19 +2273,23 @@ function CreateMemoryPageContent() {
             </Button>
           </div>
         </div>
-      )}
+        );
+      })()}
       
       {/* 既存ページ一覧（展開時） */}
       {/* LP経由（isFromClaim === true）の場合は既存メモリの表示を非表示 */}
-      {!isAdmin && existingMemories.length > 0 && showExistingMemories && !isFromClaim && (
-        <div className="max-w-2xl mx-auto mb-4">
-          <div className="bg-[#1a1a1a] rounded-2xl p-6 border border-white/10">
-            <h2 className="text-xl font-bold text-white mb-2">emolink list</h2>
-            <p className="text-white/80 text-sm mb-4">
-              編集するemolinkを選択してください
-            </p>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {existingMemories.map((memory) => (
+      {/* 現在編集中のメモリを除外 */}
+      {(() => {
+        const otherMemories = existingMemories.filter(m => m.id !== memoryId);
+        return !isAdmin && otherMemories.length > 0 && showExistingMemories && !isFromClaim && (
+          <div className="max-w-2xl mx-auto mb-4">
+            <div className="bg-[#1a1a1a] rounded-2xl p-6 border border-white/10">
+              <h2 className="text-xl font-bold text-white mb-2">emolink list</h2>
+              <p className="text-white/80 text-sm mb-4">
+                編集するemolinkを選択してください
+              </p>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {otherMemories.map((memory) => (
                 <div
                   key={memory.id}
                   className="flex items-center justify-between p-3 border border-white/10 rounded-lg hover:bg-[#2a2a2a] cursor-pointer transition-colors"
@@ -2374,15 +2401,15 @@ function CreateMemoryPageContent() {
               ))}
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
       
       {/* プロフィールセクション */}
       <div className="max-w-2xl mx-auto mb-6 px-6 sm:px-8">
         {/* プロフィール写真 */}
-        <div className="mb-6">
+        <div className="mb-6 flex flex-col items-center">
           <label className="block text-white/80 text-sm mb-2">プロフィール写真</label>
-          <div className="relative w-full max-w-xs aspect-square rounded-full overflow-hidden border border-white/10 mb-4">
+          <div className="relative w-16 h-16 rounded-full overflow-hidden border border-white/10">
             {profileImage ? (
               <>
                 <img 
@@ -2560,8 +2587,8 @@ function CreateMemoryPageContent() {
               </>
             ) : (
               <label className="w-full h-full bg-[#1a1a1a] flex flex-col items-center justify-center cursor-pointer hover:bg-[#2a2a2a] transition">
-                <Camera className="w-12 h-12 text-white/50 mb-2" />
-                <span className="text-white/60 text-sm">プロフィール写真を追加</span>
+                <Camera className="w-6 h-6 text-white/50 mb-1" />
+                <span className="text-white/60 text-xs">プロフィール写真を追加</span>
                 <input
                   type="file"
                   accept="image/*"
