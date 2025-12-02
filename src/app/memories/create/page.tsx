@@ -180,6 +180,18 @@ function CreateMemoryPageContent() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [bio, setBio] = useState('');
+  
+  // ブラウザのタブタイトルを動的に更新
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (title && title.trim()) {
+        document.title = `${title.trim()} - emolink`;
+      } else {
+        document.title = 'emolink';
+      }
+    }
+  }, [title]);
+  
   const [showEditBanner, setShowEditBanner] = useState(true);
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [profileImagePosition, setProfileImagePosition] = useState('center center');
