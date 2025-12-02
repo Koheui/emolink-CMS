@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Plus, Camera, Video as VideoIcon, Music, Image as ImageIcon, Trash2, Eye, EyeOff, FileText, Edit, X, ArrowUp, Play, Mountain, ExternalLink, Palette, LogOut } from 'lucide-react';
+import { Loader2, Plus, Camera, Video as VideoIcon, Music, Image as ImageIcon, Trash2, Eye, EyeOff, FileText, Edit, X, ArrowUp, Play, Mountain, ExternalLink, Palette, LogOut, Settings, ArrowRight } from 'lucide-react';
 import { collection, addDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage, auth } from '@/lib/firebase';
@@ -2070,25 +2070,25 @@ function CreateMemoryPageContent() {
       {showEditBanner && (
         <div className="bg-[#1a1a1a] border-b border-white/10 p-4 sm:p-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
-          <p className="text-white text-sm">エディットページ</p>
+          <p className="text-white text-xs">edit</p>
             {memoryId && (
               <span className="text-xs text-white/60 bg-[#2a2a2a] px-2 py-1 rounded">
-                編集モード
+                edit
               </span>
             )}
             {!memoryId && (
               <span className="text-xs text-white/60 bg-[#2a2a2a] px-2 py-1 rounded">
-                新規作成
+                new
               </span>
             )}
           </div>
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowColorSettings(!showColorSettings)}
-              className="flex items-center gap-2 px-3 py-1.5 bg-[#2a2a2a] text-white rounded-lg hover:bg-[#3a3a3a] transition text-sm font-medium"
+              className="flex items-center justify-center w-10 h-10 bg-[#2a2a2a] text-white rounded-lg hover:bg-[#3a3a3a] transition"
+              title="設定"
             >
-              <Palette className="w-4 h-4" />
-              設定
+              <Settings className="w-5 h-5" />
             </button>
             <button
               onClick={() => {
@@ -2118,7 +2118,7 @@ function CreateMemoryPageContent() {
                 localStorage.setItem('memory-preview', JSON.stringify(previewData));
                 window.open('/public/preview', '_blank');
               }}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg transition text-sm font-medium"
+              className="flex items-center justify-center w-10 h-10 rounded-lg transition"
               style={{ 
                 backgroundColor: accentColor, 
                 color: '#000000',
@@ -2129,9 +2129,9 @@ function CreateMemoryPageContent() {
               onMouseLeave={(e) => {
                 e.currentTarget.style.opacity = '1';
               }}
+              title="プレビュー"
             >
-              <ExternalLink className="w-4 h-4" />
-              プレビュー
+              <ArrowRight className="w-5 h-5" />
             </button>
             {isAuthenticated && (
               <button
@@ -2139,10 +2139,10 @@ function CreateMemoryPageContent() {
                   logout();
                   router.push('/');
                 }}
-                className="flex items-center gap-2 px-3 py-1.5 bg-[#2a2a2a] text-white rounded-lg hover:bg-red-500/20 hover:border-red-500/50 border border-white/10 transition text-sm font-medium"
+                className="flex items-center justify-center w-10 h-10 bg-[#2a2a2a] text-white rounded-lg hover:bg-red-500/20 hover:border-red-500/50 border border-white/10 transition"
+                title="ログアウト"
               >
-                <LogOut className="w-4 h-4" />
-                ログアウト
+                <LogOut className="w-5 h-5" />
               </button>
             )}
           </div>
