@@ -122,6 +122,17 @@ export function PublicPageClient({ initialPageId }: PublicPageClientProps) {
     body: 16,
   });
 
+  // ブラウザのタブタイトルを動的に更新
+  useEffect(() => {
+    if (typeof window !== 'undefined' && pageData) {
+      if (pageData.title && pageData.title.trim()) {
+        document.title = `${pageData.title.trim()} - emolink`;
+      } else {
+        document.title = 'emolink';
+      }
+    }
+  }, [pageData?.title]);
+
   useEffect(() => {
     const fetchPageData = async () => {
       // pageIdが設定されるまで待つ
