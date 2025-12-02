@@ -102,19 +102,12 @@ export async function sendSecretKeyEmail(
     tenantId: string;
     lpId: string;
     productType: string;
-    product?: string;  // 新規：商品名を直接入力
+    product?: string;  // 未使用（データベースから取得）
     orderId: string;
   }
 ) {
-  const productTypeNames = {
-    'acrylic': 'NFCタグ付きアクリルスタンド',
-    'digital': 'デジタル想い出ページ',
-    'premium': 'プレミアム想い出サービス',
-    'standard': 'スタンダード想い出サービス'
-  };
-
-  // 商品名を決定（product があれば product、なければ productType から変換）
-  const productName = labels.product || productTypeNames[labels.productType as keyof typeof productTypeNames] || labels.productType;
+  // 商品名はデータベースに記載されているため、メール本文には表示しない
+  // 店舗側の識別のため、テナントIDと注文IDを表示
 
   const mailOptions = {
     from: 'noreply@emolink.net',
@@ -136,10 +129,8 @@ export async function sendSecretKeyEmail(
         
         <div style="margin: 20px 0; padding: 15px; background: #f0f8ff; border-left: 4px solid #0066cc; border-radius: 4px;">
           <h3 style="color: #0066cc; margin-top: 0;">注文詳細</h3>
-          <p><strong>商品名:</strong> ${productName}</p>
-          <p><strong>テナント:</strong> ${labels.tenantId}</p>
-          <p><strong>LP:</strong> ${labels.lpId}</p>
           <p><strong>注文ID:</strong> ${labels.orderId}</p>
+          <p><strong>テナント:</strong> ${labels.tenantId}</p>
         </div>
         
         <div style="text-align: center; margin: 30px 0;">
@@ -173,7 +164,9 @@ export async function sendSecretKeyEmail(
 
 /**
  * 注文完了通知メール
+ * 【未使用】現在は使用されていません。将来の使用に備えてコメントアウトしています。
  */
+/*
 export async function sendOrderCompletionEmail(
   email: string,
   orderId: string,
@@ -225,6 +218,7 @@ export async function sendOrderCompletionEmail(
     throw error;
   }
 }
+*/
 
 /**
  * 顧客向け：ログインURLと秘密鍵をメールで送信
@@ -264,14 +258,13 @@ export async function sendCustomerLoginEmail(
           <p style="font-size: 16px; color: #555; margin: 0;">
             ${customerName}<br>
             ${config.customMessage}<br>
-            この度は、${config.productName}をご注文いただき、誠にありがとうございます。<br>
-            こちらの情報でログインして、思い出を編集・公開していただけます。
+            この度は、${config.brandName}をご利用いただき、誠にありがとうございます。<br>
+            こちらの情報でログインして、emolinkを編集・公開していただけます。
           </p>
         </div>
         
         <div style="background: #f0f8ff; padding: 15px; border-radius: 4px; margin-bottom: 20px; border-left: 4px solid ${config.primaryColor};">
           <p style="margin: 0; font-size: 14px; color: #333;">
-            <strong>商品名:</strong> ${config.productName}<br>
             <strong>サービス:</strong> ${config.serviceDescription}<br>
             <strong>提供元:</strong> ${config.companyName}
           </p>
@@ -306,7 +299,7 @@ export async function sendCustomerLoginEmail(
             <li>上のボタンからログインページを開く</li>
             <li>秘密鍵を入力してログイン</li>
             <li>写真や動画をアップロード</li>
-            <li>思い出を編集・公開</li>
+            <li>emolinkを編集・公開</li>
           </ol>
         </div>
         
@@ -382,8 +375,8 @@ export async function sendPublicPageConfirmationEmail(
         <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
           <p style="font-size: 16px; color: #555; margin: 0;">
             ${customerName}<br>
-            想い出ページの公開ページURLが確定いたしました。<br>
-            以下の情報でログインして、想い出ページを編集・管理していただけます。
+            ${config.brandName}の公開ページURLが確定いたしました。<br>
+            以下の情報でログインして、emolinkを編集・管理していただけます。
           </p>
         </div>
         
@@ -421,7 +414,7 @@ export async function sendPublicPageConfirmationEmail(
         <div style="background: #e7f3ff; border: 2px solid ${config.primaryColor}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
           <h3 style="color: ${config.primaryColor}; margin-top: 0; font-size: 18px;">🌐 公開ページURL</h3>
           <p style="margin: 10px 0; font-size: 14px; color: #666;">
-            以下のURLで想い出ページを公開しています。NFCタグやQRコードからアクセスできます。
+            以下のURLでemolinkを公開しています。
           </p>
           <div style="background: #f5f5f5; padding: 15px; border-radius: 4px; margin-top: 15px; word-break: break-all;">
             <a href="${publicPageUrl}" style="color: ${config.primaryColor}; text-decoration: none; font-size: 14px; font-weight: bold;">${publicPageUrl}</a>
@@ -443,7 +436,7 @@ export async function sendPublicPageConfirmationEmail(
             <li>ログイン用URLからログインページを開く</li>
             <li>メールアドレスとパスワードでログイン</li>
             <li>想い出ページを編集・管理</li>
-            <li>公開ページURLをNFCタグやQRコードに設定</li>
+            <li>公開ページURLをお届けのemolinkからアクセス</li>
           </ol>
         </div>
         
@@ -455,7 +448,7 @@ export async function sendPublicPageConfirmationEmail(
         
         <div style="background: #d4edda; padding: 15px; border-radius: 4px; margin-bottom: 20px; border-left: 4px solid #28a745;">
           <p style="margin: 0; color: #155724; font-size: 14px; line-height: 1.6;">
-            <strong>💡 ヒント:</strong> 公開ページURLはNFCタグやQRコードに設定することで、スマートフォンで簡単にアクセスできます。
+            <strong>💡 ヒント:</strong> 公開ページURLはお届けのemolinkから、スマートフォンで簡単にアクセスできます。
           </p>
         </div>
         
