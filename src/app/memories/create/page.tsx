@@ -90,17 +90,6 @@ function CreateMemoryPageContent() {
   const [hasLoadedMemory, setHasLoadedMemory] = useState(false);
   const [lastLoadedMemoryId, setLastLoadedMemoryId] = useState<string | null>(null);
   
-  // ブラウザのタブタイトルを動的に更新
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      if (title && title.trim()) {
-        document.title = `${title.trim()} - emolink`;
-      } else {
-        document.title = 'emolink';
-      }
-    }
-  }, [title]);
-  
   // ログイン後に既存のメモリが1つだけの場合、自動的にそのメモリにリダイレクト
   useEffect(() => {
     // 認証が完了し、既存のメモリが1つだけで、memoryIdがURLにない場合
