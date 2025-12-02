@@ -442,7 +442,7 @@ export async function sendPublicPageConfirmationEmail(
           <ol style="margin: 0; padding-left: 20px; color: #333; line-height: 1.8;">
             <li>ログイン用URLからログインページを開く</li>
             <li>メールアドレスとパスワードでログイン</li>
-            <li>想い出ページを編集・管理</li>
+            <li>emolinkを編集・管理</li>
             <li>公開ページURLをお届けのemolinkからアクセス</li>
           </ol>
         </div>
