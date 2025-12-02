@@ -1890,10 +1890,10 @@ function CreateMemoryPageContent() {
           )}
           <div className="bg-[#1a1a1a] rounded-2xl border border-white/10 p-6 mb-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-2xl font-bold text-white">既存の想い出ページ</h2>
+              <h2 className="text-2xl font-bold text-white">emolink list</h2>
             </div>
             <p className="text-white/80 mb-6">
-              既に作成した想い出ページがあります。編集するページを選択してください。
+              既に作成したemolinkがあります。編集するemolinkを選択してください。
             </p>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1908,50 +1908,6 @@ function CreateMemoryPageContent() {
                     e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
                   }}
                 >
-                  {/* 削除ボタン（開発中のみ有効、公開版では廃止予定） */}
-                  <button
-                    type="button"
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      console.log('Delete button clicked for memory:', memory.id);
-                      if (confirm(`「${memory.title || '無題'}」を削除してもよろしいですか？\nこの操作は取り消せません。`)) {
-                        try {
-                          setDeletingMemoryId(memory.id);
-                          setError(null);
-                          console.log('Calling deleteMemory...');
-                          // エンドユーザーは自分のmemoryであればテナント問わず削除可能
-                          const isOwner = memory.ownerUid === currentUser?.uid;
-                          await deleteMemory(memory.id, !isAdmin && isOwner);
-                          console.log('Delete successful, invalidating cache...');
-                          // React Queryのキャッシュを無効化
-                          queryClient.invalidateQueries({ queryKey: ['memories', currentUser?.uid] });
-                          setSuccessMessage('削除が完了しました');
-                          setTimeout(() => {
-                            setSuccessMessage(null);
-                          }, 3000);
-                        } catch (error: any) {
-                          console.error('Delete error:', error);
-                          setError(`削除に失敗しました: ${error.message}`);
-                          setTimeout(() => {
-                            setError(null);
-                          }, 5000);
-                        } finally {
-                          setDeletingMemoryId(null);
-                        }
-                      }
-                    }}
-                    disabled={deletingMemoryId === memory.id}
-                    className="absolute top-2 right-2 p-2 bg-red-500/30 hover:bg-red-500/50 text-red-400 rounded-lg transition disabled:opacity-50 z-20 border border-red-500/50"
-                    title="削除（開発中のみ有効）"
-                  >
-                    {deletingMemoryId === memory.id ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    ) : (
-                      <Trash2 className="w-5 h-5" />
-                    )}
-                  </button>
-                  
                   <div
                     className="cursor-pointer"
                     onClick={() => router.push(`/memories/create?memoryId=${memory.id}`)}
@@ -2282,7 +2238,7 @@ function CreateMemoryPageContent() {
               <FileText className="w-5 h-5 text-white" />
               <div>
                 <p className="text-white font-medium">
-                  既存の想い出ページが {existingMemories.length} 件あります
+                  ほかにもemolinkが {existingMemories.length} 件あります
                 </p>
                 <p className="text-white/80 text-sm">
                   複数のLPから作成したページもすべて表示されます
@@ -2306,9 +2262,9 @@ function CreateMemoryPageContent() {
       {!isAdmin && existingMemories.length > 0 && showExistingMemories && !isFromClaim && (
         <div className="max-w-2xl mx-auto mb-4">
           <div className="bg-[#1a1a1a] rounded-2xl p-6 border border-white/10">
-            <h2 className="text-xl font-bold text-white mb-2">既存の想い出ページ</h2>
+            <h2 className="text-xl font-bold text-white mb-2">emolink list</h2>
             <p className="text-white/80 text-sm mb-4">
-              編集するページを選択してください
+              編集するemolinkを選択してください
             </p>
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {existingMemories.map((memory) => (
