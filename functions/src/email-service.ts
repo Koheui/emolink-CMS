@@ -351,10 +351,12 @@ export async function sendPublicPageConfirmationEmail(
       name?: string;
     };
     tenantId?: string;
+    productName?: string;  // 商品名（claimRequest.productから取得）
   }
 ) {
   const customerInfo = options?.customerInfo || {};
   const tenantId = options?.tenantId || 'default';
+  const productName = options?.productName;  // 商品名を取得
   
   // テナント設定を取得
   const config = tenantEmailConfigs[tenantId] || tenantEmailConfigs['default'];
@@ -362,10 +364,15 @@ export async function sendPublicPageConfirmationEmail(
   const customerName = customerInfo?.name ? `${customerInfo.name} 様` : 'お客様';
   const mailFrom = (gmailConfig?.user as string) || process.env.MAIL_FROM || 'noreply@emolink.net';
   
+  // メールタイトル: 商品名があれば商品名、なければブランド名を使用
+  const emailSubject = productName 
+    ? `${productName} - 公開ページが確定しました`
+    : `${config.brandName} - 公開ページが確定しました`;
+  
   const mailOptions = {
     from: mailFrom,
     to: email,
-    subject: `${config.brandName} - 公開ページが確定しました`,
+    subject: emailSubject,
     html: `
       <div style="font-family: 'Hiragino Sans', 'Meiryo', 'Yu Gothic', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <div style="text-align: center; margin-bottom: 30px;">

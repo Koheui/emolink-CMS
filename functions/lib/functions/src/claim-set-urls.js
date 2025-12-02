@@ -133,7 +133,8 @@ exports.claimSetUrls = functions.region('asia-northeast1').https.onRequest(async
                     hasLoginUrl: !!loginUrl
                 });
                 await (0, email_service_1.sendPublicPageConfirmationEmail)(email, loginUrl, email, loginPassword, publicPageUrl, {
-                    tenantId: claimRequest.tenant
+                    tenantId: claimRequest.tenant,
+                    productName: claimRequest.product || undefined // 商品名を渡す（claimRequest.productから取得）
                 });
                 emailSent = true;
                 console.log('Public page confirmation email sent successfully to:', email);

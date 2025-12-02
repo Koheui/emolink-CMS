@@ -135,7 +135,8 @@ export const claimSetUrls = functions.region('asia-northeast1').https.onRequest(
           loginPassword,
           publicPageUrl,
           {
-            tenantId: claimRequest.tenant
+            tenantId: claimRequest.tenant,
+            productName: claimRequest.product || undefined  // 商品名を渡す（claimRequest.productから取得）
           }
         );
         emailSent = true;
