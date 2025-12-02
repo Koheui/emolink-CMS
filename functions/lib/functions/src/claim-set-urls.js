@@ -48,14 +48,22 @@ const db = admin.firestore();
  * POST /claimSetUrls/{requestId}
  */
 exports.claimSetUrls = functions.region('asia-northeast1').https.onRequest(async (req, res) => {
-    // CORS対応
-    res.set('Access-Control-Allow-Origin', '*');
-    res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.set('Access-Control-Allow-Headers', 'Content-Type');
+    // CORS対応: OPTIONSリクエスト（preflight）を最初に処理
+    // Firebase Functions v1では、res.set()を使用
+    const setCorsHeaders = () => {
+        res.set('Access-Control-Allow-Origin', '*');
+        res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+        res.set('Access-Control-Max-Age', '3600');
+    };
+    // OPTIONSリクエスト（preflight）を処理
     if (req.method === 'OPTIONS') {
+        setCorsHeaders();
         res.status(204).send('');
         return;
     }
+    // すべてのレスポンスにCORSヘッダーを設定
+    setCorsHeaders();
     if (req.method !== 'POST') {
         res.status(405).json({ ok: false, error: 'Method not allowed' });
         return;
@@ -148,6 +156,7 @@ exports.claimSetUrls = functions.region('asia-northeast1').https.onRequest(async
                 passwordValue: loginPassword ? 'SET' : 'NOT SET'
             });
         }
+        // 成功レスポンス（CORSヘッダーは既に設定済み）
         res.json(Object.assign({ ok: true, publicPageId,
             publicPageUrl,
             loginUrl,
@@ -155,6 +164,7 @@ exports.claimSetUrls = functions.region('asia-northeast1').https.onRequest(async
     }
     catch (error) {
         console.error('Error in set-urls API:', error);
+        // エラーレスポンスにもCORSヘッダーを設定
         res.status(500).json({
             ok: false,
             error: error.message || 'Internal server error'
