@@ -15,6 +15,11 @@ export const ORIGIN_TENANT_MAP: { [origin: string]: { tenant: string; lpId: stri
   'https://emolink.cloud': { tenant: 'petmem', lpId: 'direct' },
   'https://partner-a-lp.web.app': { tenant: 'client-a', lpId: 'main' },
   'https://partner-b-lp.web.app': { tenant: 'client-b', lpId: 'main' },
+  // CMSドメイン（既存）
+  'https://emolink-cms.web.app': { tenant: 'store-1764868335259', lpId: 'emolink-direct-01' },
+  'https://emolink.net': { tenant: 'store-1764868335259', lpId: 'emolink-direct-01' },
+  // CRM用ドメイン
+  'https://emolink-crm.web.app': { tenant: 'store-1764868335259', lpId: 'crm' },
   // 開発環境
   'http://localhost:3000': { tenant: 'dev', lpId: 'local' },
   'http://localhost:3001': { tenant: 'dev', lpId: 'local' },
@@ -24,7 +29,10 @@ export const ORIGIN_TENANT_MAP: { [origin: string]: { tenant: string; lpId: stri
 export function getTenantFromOrigin(origin: string): { tenant: string; lpId: string } {
   const tenantInfo = ORIGIN_TENANT_MAP[origin];
   if (!tenantInfo) {
-    throw new Error(`Unknown origin: ${origin}`);
+    // 未知のOriginの場合、デフォルトのテナントを返す（エラーを投げない）
+    console.warn(`Unknown origin: ${origin}, using default tenant`);
+    // デフォルトテナント（既存のCMSドメインと同じテナントを使用）
+    return { tenant: 'store-1764868335259', lpId: 'emolink-direct-01' };
   }
   return tenantInfo;
 }

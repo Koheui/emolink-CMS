@@ -216,14 +216,37 @@ export async function updateMemory(memoryId: string, updates: Partial<Memory>, s
     }
   }
   
+  // undefinedの値を除外するヘルパー関数
+  const removeUndefined = (obj: any): any => {
+    if (obj === null || obj === undefined) {
+      return null;
+    }
+    if (Array.isArray(obj)) {
+      return obj.map(item => removeUndefined(item));
+    }
+    if (typeof obj === 'object') {
+      const cleaned: any = {};
+      for (const key in obj) {
+        if (obj[key] !== undefined) {
+          cleaned[key] = removeUndefined(obj[key]);
+        }
+      }
+      return cleaned;
+    }
+    return obj;
+  };
+  
+  // undefinedの値を除外
+  const cleanedUpdates = removeUndefined(updates);
+  
   console.log('=== updateMemory: Calling updateDoc ===');
   console.log('Updates to save:', {
-    ...updates,
-    blocks: updates.blocks ? (Array.isArray(updates.blocks) ? `${updates.blocks.length} blocks` : 'not an array') : 'not in updates'
+    ...cleanedUpdates,
+    blocks: cleanedUpdates.blocks ? (Array.isArray(cleanedUpdates.blocks) ? `${cleanedUpdates.blocks.length} blocks` : 'not an array') : 'not in updates'
   });
   
   await updateDoc(docRef, {
-    ...updates,
+    ...cleanedUpdates,
     updatedAt: serverTimestamp(),
   });
   

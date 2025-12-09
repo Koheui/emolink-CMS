@@ -13,6 +13,7 @@ import { useMemories } from '@/hooks/use-memories';
 import { AdminLayout } from '@/components/admin-layout';
 import { Memory } from '@/types';
 import { updateMemory, deleteMemory } from '@/lib/firestore';
+import { AnimatedCard } from '@/components/animated-card';
 
 export default function DashboardPage() {
   const { user, loading, currentTenant, isAuthenticated, isAdmin, isSuperAdmin } = useSecretKeyAuth();
@@ -227,7 +228,7 @@ export default function DashboardPage() {
     return (
       <AdminLayout>
         <div className="p-6 lg:p-8">
-          <div className="mb-8">
+          <div className="mb-8 animate-fade-in-down">
             <h1 className="text-3xl font-bold text-gray-900 mb-2">管理ダッシュボード</h1>
             <p className="text-gray-600">
               顧客・注文・テナント管理
@@ -236,47 +237,174 @@ export default function DashboardPage() {
 
           <div className="grid gap-6">
             {/* クイックアクション（CRM機能） */}
-            <Card>
+            <AnimatedCard delay={0} variant="fade-in-up">
+              <Card className="hover:shadow-lg transition-shadow duration-300">
+                <CardHeader>
+                  <CardTitle>管理機能</CardTitle>
+                  <CardDescription>
+                    顧客管理とシステム管理へのアクセス
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <Button
+                      variant="outline"
+                      onClick={() => router.push('/admin/users')}
+                      className="h-24 flex flex-col items-center justify-center space-y-2 transition-transform duration-200 hover:scale-105"
+                    >
+                      <Users className="w-6 h-6" />
+                      <span>ユーザー管理</span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => router.push('/crm/orders')}
+                      className="h-24 flex flex-col items-center justify-center space-y-2 transition-transform duration-200 hover:scale-105"
+                    >
+                      <FileText className="w-6 h-6" />
+                      <span>注文管理（CRM）</span>
+                    </Button>
+                    {isSuperAdmin && (
+                      <Button
+                        variant="outline"
+                        onClick={() => router.push('/admin/tenants')}
+                        className="h-24 flex flex-col items-center justify-center space-y-2 transition-transform duration-200 hover:scale-105"
+                      >
+                        <Building className="w-6 h-6" />
+                        <span>テナント管理</span>
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </AnimatedCard>
+
+            {/* セキュリティ情報 */}
+            <AnimatedCard delay={100} variant="fade-in-up">
+              <Card className="hover:shadow-lg transition-shadow duration-300">
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Shield className="w-5 h-5 text-green-600" />
+                    <span>セキュリティ状況</span>
+                  </CardTitle>
+                  <CardDescription>
+                    テナント分離とアクセス制御の状況
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                      <span className="text-sm">テナント分離: 有効</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                      <span className="text-sm">Origin検証: 有効</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                      <span className="text-sm">アクセス制御: 有効</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </AnimatedCard>
+          </div>
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  // 一般ユーザー向けCMSダッシュボード
+  return (
+      <AdminLayout>
+      <div className="p-6 lg:p-8">
+        <div className="mb-8 animate-fade-in-down">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">マイページ</h1>
+          <p className="text-gray-600">
+            あなたの想い出ページを管理
+          </p>
+        </div>
+
+        <div className="grid gap-6">
+          {/* 統計カード（CMS機能） */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <AnimatedCard delay={0} variant="fade-in-up">
+              <Card className="hover:shadow-lg transition-shadow duration-300">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">総想い出数</CardTitle>
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{memories.length}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    作成した想い出ページ
+                  </p>
+                </CardContent>
+              </Card>
+            </AnimatedCard>
+
+            <AnimatedCard delay={100} variant="fade-in-up">
+              <Card className="hover:shadow-lg transition-shadow duration-300">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">公開済み</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-green-600">{publishedMemories}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    公開中のページ
+                  </p>
+                </CardContent>
+              </Card>
+            </AnimatedCard>
+
+            <AnimatedCard delay={200} variant="fade-in-up">
+              <Card className="hover:shadow-lg transition-shadow duration-300">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">下書き</CardTitle>
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-gray-600">{draftMemories}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    編集中のページ
+                  </p>
+                </CardContent>
+              </Card>
+            </AnimatedCard>
+          </div>
+
+          {/* クイックアクション（CMS機能） */}
+          <AnimatedCard delay={300} variant="fade-in-up">
+            <Card className="hover:shadow-lg transition-shadow duration-300">
               <CardHeader>
-                <CardTitle>管理機能</CardTitle>
+                <CardTitle>クイックアクション</CardTitle>
                 <CardDescription>
-                  顧客管理とシステム管理へのアクセス
+                  想い出ページの作成と管理
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Button
-                    variant="outline"
-                    onClick={() => router.push('/admin/users')}
-                    className="h-24 flex flex-col items-center justify-center space-y-2"
+                    onClick={() => router.push('/memories/create')}
+                    className="h-24 flex flex-col items-center justify-center space-y-2 transition-transform duration-200 hover:scale-105"
                   >
-                    <Users className="w-6 h-6" />
-                    <span>ユーザー管理</span>
+                    <Plus className="w-6 h-6" />
+                    <span>新しい想い出を作成</span>
                   </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => router.push('/orders')}
-                    className="h-24 flex flex-col items-center justify-center space-y-2"
-                  >
-                    <FileText className="w-6 h-6" />
-                    <span>注文管理</span>
-                  </Button>
-                  {isSuperAdmin && (
-                    <Button
-                      variant="outline"
-                      onClick={() => router.push('/admin/tenants')}
-                      className="h-24 flex flex-col items-center justify-center space-y-2"
-                    >
-                      <Building className="w-6 h-6" />
-                      <span>テナント管理</span>
-                    </Button>
-                  )}
                 </div>
               </CardContent>
             </Card>
+          </AnimatedCard>
 
-            {/* セキュリティ情報 */}
-            <Card>
+          {/* Firebase接続状態 */}
+          <AnimatedCard delay={400} variant="fade-in-up">
+            <FirebaseStatus />
+          </AnimatedCard>
+
+          {/* セキュリティ情報 */}
+          <AnimatedCard delay={500} variant="fade-in-up">
+            <Card className="hover:shadow-lg transition-shadow duration-300">
               <CardHeader>
                 <CardTitle className="flex items-center space-x-2">
                   <Shield className="w-5 h-5 text-green-600" />
@@ -303,128 +431,18 @@ export default function DashboardPage() {
                 </div>
               </CardContent>
             </Card>
-          </div>
-        </div>
-      </AdminLayout>
-    );
-  }
+          </AnimatedCard>
 
-  // 一般ユーザー向けCMSダッシュボード
-  return (
-    <AdminLayout>
-      <div className="p-6 lg:p-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">マイページ</h1>
-          <p className="text-gray-600">
-            あなたの想い出ページを管理
-          </p>
-        </div>
-
-        <div className="grid gap-6">
-          {/* 統計カード（CMS機能） */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">総想い出数</CardTitle>
-                <FileText className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{memories.length}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  作成した想い出ページ
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">公開済み</CardTitle>
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-600">{publishedMemories}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  公開中のページ
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">下書き</CardTitle>
-                <Clock className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-gray-600">{draftMemories}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  編集中のページ
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* クイックアクション（CMS機能） */}
-          <Card>
-            <CardHeader>
-              <CardTitle>クイックアクション</CardTitle>
-              <CardDescription>
-                想い出ページの作成と管理
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Button
-                  onClick={() => router.push('/memories/create')}
-                  className="h-24 flex flex-col items-center justify-center space-y-2"
-                >
-                  <Plus className="w-6 h-6" />
-                  <span>新しい想い出を作成</span>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Firebase接続状態 */}
-          <FirebaseStatus />
-
-          {/* セキュリティ情報 */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <Shield className="w-5 h-5 text-green-600" />
-                <span>セキュリティ状況</span>
-              </CardTitle>
-              <CardDescription>
-                テナント分離とアクセス制御の状況
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                  <span className="text-sm">テナント分離: 有効</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                  <span className="text-sm">Origin検証: 有効</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                  <span className="text-sm">アクセス制御: 有効</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>あなたの想い出</CardTitle>
-                  <CardDescription>
-                    作成した想い出ページの一覧です（テナント: {getTenantLabel(currentTenant)}）
-                  </CardDescription>
-                </div>
+          <AnimatedCard delay={600} variant="fade-in-up">
+            <Card className="hover:shadow-lg transition-shadow duration-300">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>あなたの想い出</CardTitle>
+                    <CardDescription>
+                      作成した想い出ページの一覧です（テナント: {getTenantLabel(currentTenant)}）
+                    </CardDescription>
+                  </div>
                 {!isSelectMode ? (
                   <Button
                     variant="outline"
@@ -637,10 +655,10 @@ export default function DashboardPage() {
                   )}
                   
                   <div className="grid gap-4">
-                    {filteredMemories.map((memory) => (
+                    {filteredMemories.map((memory, index) => (
                       <div
                         key={memory.id}
-                        className={`flex items-center justify-between p-4 border rounded-lg transition-colors ${
+                        className={`flex items-center justify-between p-4 border rounded-lg transition-all duration-300 hover:shadow-md ${
                           isSelectMode
                             ? 'cursor-default'
                             : 'hover:bg-gray-50 cursor-pointer'
@@ -648,7 +666,11 @@ export default function DashboardPage() {
                           selectedMemories.includes(memory.id)
                             ? 'bg-blue-50 border-blue-300'
                             : ''
-                        }`}
+                        } animate-fade-in-up`}
+                        style={{
+                          animationDelay: `${index * 50}ms`,
+                          animationFillMode: 'both',
+                        }}
                         onClick={() => {
                           if (isSelectMode) {
                             toggleMemorySelection(memory.id);
@@ -706,6 +728,7 @@ export default function DashboardPage() {
                                   e.stopPropagation();
                                   handleTogglePublish(memory.id, memory.status);
                                 }}
+                                className="transition-transform duration-200 hover:scale-105"
                               >
                                 {memory.status === 'published' ? '非公開' : '公開'}
                               </Button>
@@ -716,6 +739,7 @@ export default function DashboardPage() {
                                   e.stopPropagation();
                                   router.push(`/memories/${memory.id}`);
                                 }}
+                                className="transition-transform duration-200 hover:scale-105"
                               >
                                 編集
                               </Button>
@@ -726,7 +750,7 @@ export default function DashboardPage() {
                                   e.stopPropagation();
                                   handleDeleteMemory(memory.id, memory.title);
                                 }}
-                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50 transition-transform duration-200 hover:scale-105"
                               >
                                 削除
                               </Button>
@@ -745,6 +769,7 @@ export default function DashboardPage() {
               )}
             </CardContent>
           </Card>
+          </AnimatedCard>
         </div>
       </div>
     </AdminLayout>

@@ -36,7 +36,7 @@ function InitialSetupPageContent() {
     const loadClaimRequest = async () => {
       let claimId = typeof window !== 'undefined' ? sessionStorage.getItem('currentClaimRequestId') : null;
       
-      // sessionStorageにない場合、メールアドレスから検索を試みる
+      // sessionStorageにない場合、メールアドレスから検索を試みる（より確実に取得）
       if (!claimId && currentUser?.email) {
         try {
           console.log('claimRequestId not found in sessionStorage, searching by email:', currentUser.email);
@@ -45,29 +45,91 @@ function InitialSetupPageContent() {
           const { db } = await import('@/lib/firebase');
           const tenant = getCurrentTenant();
           
-          // メールアドレスとテナントでclaimRequestを検索（最新のもの）
-          const claimRequestsQuery = query(
+          // まず、テナント指定で検索
+          let claimRequestsQuery = query(
             collection(db, 'claimRequests'),
             where('email', '==', currentUser.email),
             where('tenant', '==', tenant),
             orderBy('createdAt', 'desc'),
             limit(1)
           );
-          const snapshot = await getDocs(claimRequestsQuery);
+          
+          let snapshot = await getDocs(claimRequestsQuery);
+          
+          // テナント指定で見つからない場合、テナント指定なしで検索
+          if (snapshot.empty) {
+            console.log('No claimRequest found with tenant, searching without tenant filter');
+            claimRequestsQuery = query(
+              collection(db, 'claimRequests'),
+              where('email', '==', currentUser.email),
+              orderBy('createdAt', 'desc'),
+              limit(1)
+            );
+            snapshot = await getDocs(claimRequestsQuery);
+          }
           
           if (!snapshot.empty) {
             const latestRequest = snapshot.docs[0];
             claimId = latestRequest.id;
-            console.log('Found claimRequest by email:', claimId);
+            console.log('✅ Found claimRequest by email:', claimId);
             // sessionStorageに保存
             if (typeof window !== 'undefined') {
               sessionStorage.setItem('currentClaimRequestId', claimId);
             }
           } else {
-            console.warn('No claimRequest found for email:', currentUser.email);
+            console.warn('⚠️ No claimRequest found for email:', currentUser.email, 'tenant:', tenant);
           }
-        } catch (error) {
-          console.error('Error searching claimRequest by email:', error);
+        } catch (error: any) {
+          console.error('❌ Error searching claimRequest by email:', error);
+          // インデックスエラーの場合は、orderByなしで再試行
+          if (error.message?.includes('index')) {
+            try {
+              console.log('Retrying without orderBy due to index error');
+              const { query, where, getDocs, limit } = await import('firebase/firestore');
+              const { collection } = await import('firebase/firestore');
+              const { db } = await import('@/lib/firebase');
+              const tenant = getCurrentTenant();
+              
+              let claimRequestsQuery = query(
+                collection(db, 'claimRequests'),
+                where('email', '==', currentUser.email),
+                where('tenant', '==', tenant),
+                limit(10) // 最新10件を取得して、クライアント側でソート
+              );
+              
+              let snapshot = await getDocs(claimRequestsQuery);
+              
+              if (snapshot.empty) {
+                claimRequestsQuery = query(
+                  collection(db, 'claimRequests'),
+                  where('email', '==', currentUser.email),
+                  limit(10)
+                );
+                snapshot = await getDocs(claimRequestsQuery);
+              }
+              
+              if (!snapshot.empty) {
+                // クライアント側でソート（createdAt降順）
+                const requests = snapshot.docs
+                  .map(doc => ({ id: doc.id, ...doc.data() }))
+                  .sort((a: any, b: any) => {
+                    const aTime = a.createdAt?.toMillis?.() || 0;
+                    const bTime = b.createdAt?.toMillis?.() || 0;
+                    return bTime - aTime;
+                  });
+                
+                if (requests.length > 0) {
+                  claimId = requests[0].id;
+                  console.log('✅ Found claimRequest by email (without orderBy):', claimId);
+                  if (typeof window !== 'undefined') {
+                    sessionStorage.setItem('currentClaimRequestId', claimId);
+                  }
+                }
+              }
+            } catch (retryError) {
+              console.error('❌ Retry also failed:', retryError);
+            }
+          }
         }
       }
       
@@ -261,12 +323,68 @@ function InitialSetupPageContent() {
       }
 
       // claimRequestにpublicPageIdとpublicPageUrlを設定（必須）
-      // 注意: updateClaimRequestはclaimSetUrls関数内で実行されるため、ここでは呼び出さない
-      if (claimRequestId) {
+      // claimRequestIdが取得できていない場合、再度検索を試みる
+      let finalClaimRequestId = claimRequestId;
+      
+      if (!finalClaimRequestId && currentUser?.email) {
+        console.log('⚠️ claimRequestId not found in state, attempting to find by email:', currentUser.email);
+        try {
+          const { query, where, getDocs, limit } = await import('firebase/firestore');
+          const { collection } = await import('firebase/firestore');
+          const { db } = await import('@/lib/firebase');
+          const tenant = getCurrentTenant();
+          
+          // テナント指定で検索（orderByなし）
+          let claimRequestsQuery = query(
+            collection(db, 'claimRequests'),
+            where('email', '==', currentUser.email),
+            where('tenant', '==', tenant),
+            limit(10)
+          );
+          
+          let snapshot = await getDocs(claimRequestsQuery);
+          
+          // テナント指定で見つからない場合、テナント指定なしで検索
+          if (snapshot.empty) {
+            console.log('No claimRequest found with tenant, searching without tenant filter');
+            claimRequestsQuery = query(
+              collection(db, 'claimRequests'),
+              where('email', '==', currentUser.email),
+              limit(10)
+            );
+            snapshot = await getDocs(claimRequestsQuery);
+          }
+          
+          if (!snapshot.empty) {
+            // クライアント側でソート（createdAt降順）
+            const requests = snapshot.docs
+              .map(doc => ({ id: doc.id, ...doc.data() }))
+              .sort((a: any, b: any) => {
+                const aTime = a.createdAt?.toMillis?.() || 0;
+                const bTime = b.createdAt?.toMillis?.() || 0;
+                return bTime - aTime;
+              });
+            
+            if (requests.length > 0) {
+              finalClaimRequestId = requests[0].id;
+              console.log('✅ Found claimRequest by email in handleSave:', finalClaimRequestId);
+              setClaimRequestId(finalClaimRequestId);
+              if (typeof window !== 'undefined') {
+                sessionStorage.setItem('currentClaimRequestId', finalClaimRequestId);
+              }
+            }
+          }
+        } catch (error: any) {
+          console.error('❌ Error searching claimRequest by email in handleSave:', error);
+        }
+      }
+      
+      // claimRequestIdが見つかった場合のみメール送信
+      if (finalClaimRequestId) {
         console.log('=== Step 4: Updating claimRequest and sending email ===');
         const publicPageUrl = generatePublicPageUrl(createdPublicPageId, tenant);
         console.log('Preparing to update claimRequest and send confirmation email...', {
-          claimRequestId,
+          claimRequestId: finalClaimRequestId,
           publicPageId: createdPublicPageId,
           publicPageUrl,
           tenant,
@@ -278,7 +396,7 @@ function InitialSetupPageContent() {
         const loginUrl = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : 'https://emolink-cms.web.app');
         
         // claimRequestからメールアドレスを取得
-        const claimRequestData = await getClaimRequestById(claimRequestId, true);
+        const claimRequestData = await getClaimRequestById(finalClaimRequestId, true);
         const loginEmail = claimRequestData?.email || '';
         
         if (!loginEmail) {
@@ -292,27 +410,61 @@ function InitialSetupPageContent() {
           throw new Error('パスワードが取得できませんでした。パスワード設定画面から再度お試しください。');
         }
         
-        console.log('Calling claimSetUrls API to trigger email...', {
-          requestId: claimRequestId,
-          publicPageId: createdPublicPageId,
-          publicPageUrl: publicPageUrl,
-          loginEmail: loginEmail,
-          hasPassword: !!loginPassword,
-        });
-        
-        // Firebase Functions APIを使用してメール送付をトリガー
-        const apiUrl = `https://asia-northeast1-memorylink-cms.cloudfunctions.net/claimSetUrls?requestId=${encodeURIComponent(claimRequestId)}`;
-        console.log('API URL:', apiUrl);
-        console.log('Request body:', {
+        // Step 4-1: クライアントサイドから直接claimRequestを更新（認証コンテキストが利用可能）
+        console.log('=== Step 4-1: Updating claimRequest from client side ===');
+        console.log('Updating claimRequest:', {
+          requestId: finalClaimRequestId,
           publicPageId: createdPublicPageId,
           publicPageUrl: publicPageUrl,
           loginUrl: loginUrl,
-          loginEmail: loginEmail,
-          hasPassword: !!loginPassword,
           claimedByUid: currentUser.uid,
         });
         
+        try {
+          const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore');
+          const { db } = await import('@/lib/firebase');
+          const claimRequestRef = doc(db, 'claimRequests', finalClaimRequestId);
+          
+          await updateDoc(claimRequestRef, {
+            publicPageId: createdPublicPageId,
+            publicPageUrl: publicPageUrl,
+            loginUrl: loginUrl,
+            claimedByUid: currentUser.uid,
+            updatedAt: serverTimestamp(),
+          });
+          
+          console.log('✅ Step 4-1 completed: claimRequest updated successfully from client side');
+        } catch (updateError: any) {
+          console.error('❌ Failed to update claimRequest from client side:', updateError);
+          throw new Error(`データベースへの書き込みに失敗しました: ${updateError.message || '不明なエラー'}`);
+        }
+        
+        // claimRequestの更新を確認（Firestoreから直接取得）
+        const verifyClaimRequest = await getClaimRequestById(finalClaimRequestId, true);
+        if (verifyClaimRequest?.publicPageId === createdPublicPageId && verifyClaimRequest?.publicPageUrl === publicPageUrl) {
+          console.log('✅ Step 4-2 completed: Verification - claimRequest publicPageId and publicPageUrl are correctly set');
+        } else {
+          console.error('❌ Verification failed: claimRequest data mismatch', {
+            expectedPublicPageId: createdPublicPageId,
+            actualPublicPageId: verifyClaimRequest?.publicPageId,
+            expectedPublicPageUrl: publicPageUrl,
+            actualPublicPageUrl: verifyClaimRequest?.publicPageUrl,
+          });
+          throw new Error('claimRequestの更新が正しく保存されていません。');
+        }
+        
+        // Step 4-3: メール送信のみAPIルートを呼び出す
+        console.log('=== Step 4-3: Sending email via API ===');
+        console.log('Calling send-email API...', {
+          requestId: finalClaimRequestId,
+          loginEmail: loginEmail,
+          hasPassword: !!loginPassword,
+        });
+        
+        const apiUrl = `/api/claim/${finalClaimRequestId}/send-email`;
         let response: Response;
+        let emailSent = false; // メール送信の成功/失敗を追跡
+        
         try {
           response = await fetch(apiUrl, {
             method: 'POST',
@@ -320,12 +472,10 @@ function InitialSetupPageContent() {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              publicPageId: createdPublicPageId,
-              publicPageUrl: publicPageUrl,
-              loginUrl: loginUrl,
               loginEmail: loginEmail,
               loginPassword: loginPassword,
-              claimedByUid: currentUser.uid,
+              publicPageUrl: publicPageUrl,
+              loginUrl: loginUrl,
             }),
           });
         } catch (fetchError: any) {
@@ -334,11 +484,10 @@ function InitialSetupPageContent() {
         }
 
         console.log('Response status:', response.status);
-        console.log('Response headers:', Object.fromEntries(response.headers.entries()));
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.error('❌ claimSetUrls API HTTP error:', {
+          console.error('❌ send-email API HTTP error:', {
             status: response.status,
             statusText: response.statusText,
             body: errorText,
@@ -355,69 +504,47 @@ function InitialSetupPageContent() {
               errorMessage = errorText;
             }
           }
-          throw new Error(errorMessage);
-        }
-
-        let result: any;
-        try {
-          const responseText = await response.text();
-          console.log('Response text:', responseText);
-          result = JSON.parse(responseText);
-        } catch (parseError: any) {
-          console.error('❌ Failed to parse response as JSON:', parseError);
-          throw new Error('メール送付APIの応答の解析に失敗しました');
-        }
-        
-        console.log('claimSetUrls API response:', result);
-        
-        if (!result.ok) {
-          const errorMsg = result.error || 'メール送付に失敗しました';
-          console.error('❌ claimSetUrls API error:', errorMsg);
-          throw new Error(errorMsg);
-        }
-        
-        // claimRequestの更新が成功したことを確認
-        console.log('✅ Step 4-1 completed: claimRequest updated successfully in claimSetUrls:', {
-          publicPageId: result.publicPageId,
-          publicPageUrl: result.publicPageUrl,
-          loginUrl: result.loginUrl,
-        });
-        
-        // claimRequestの更新を確認（Firestoreから直接取得）
-        const verifyClaimRequest = await getClaimRequestById(claimRequestId, true);
-        if (verifyClaimRequest?.publicPageId === createdPublicPageId && verifyClaimRequest?.publicPageUrl === publicPageUrl) {
-          console.log('✅ Step 4-2 completed: Verification - claimRequest publicPageId and publicPageUrl are correctly set');
+          // メール送信に失敗しても、URLの設定は成功しているため、警告メッセージを表示
+          setSuccessMessage(`公開ページURLが確定しました。ただし、メール通知の送信に失敗しました: ${errorMessage}`);
+          console.warn('⚠️ Email sending failed, but claimRequest was updated successfully');
+          emailSent = false;
         } else {
-          console.error('❌ Verification failed: claimRequest data mismatch', {
-            expectedPublicPageId: createdPublicPageId,
-            actualPublicPageId: verifyClaimRequest?.publicPageId,
-            expectedPublicPageUrl: publicPageUrl,
-            actualPublicPageUrl: verifyClaimRequest?.publicPageUrl,
-          });
+          let result: any;
+          try {
+            result = await response.json();
+          } catch (parseError: any) {
+            console.error('❌ Failed to parse response as JSON:', parseError);
+            setSuccessMessage(`公開ページURLが確定しました。ただし、メール通知の送信に失敗しました: 応答の解析に失敗しました`);
+            console.warn('⚠️ Email sending failed (parse error), but claimRequest was updated successfully');
+            emailSent = false;
+          }
+          
+          if (result && result.ok && result.emailSent) {
+            console.log('✅ Step 4-3 completed: Email sent successfully:', result);
+            emailSent = true;
+            // メール送信が成功した場合のみ成功メッセージを設定
+            setSuccessMessage('公開ページURLが確定し、確認メールを送信しました。');
+          } else {
+            const errorMsg = result?.emailError || 'メール送付に失敗しました（詳細不明）';
+            console.error('⚠️ Email sending failed:', errorMsg);
+            setSuccessMessage(`公開ページURLが確定しました。ただし、メール通知の送信に失敗しました: ${errorMsg}`);
+            emailSent = false;
+          }
         }
-        
-        // メール送信の結果を確認
-        if (result.emailSent === false) {
-          const errorMsg = result.emailError || 'メール送付に失敗しました（詳細不明）';
-          console.error('❌ Email sending failed:', errorMsg);
-          throw new Error(`メール送付に失敗しました: ${errorMsg}`);
-        }
-        
-        console.log('✅ Step 4-3 completed: Email sent successfully:', result);
         
         // パスワードをsessionStorageから削除（セキュリティのため）
         if (typeof window !== 'undefined') {
           sessionStorage.removeItem('tempPassword');
         }
         
-        // 成功メッセージを表示
+        // 成功ログを表示（メッセージは既に設定済み）
         console.log('✅ Initial setup completed successfully:', {
           memoryId,
           publicPageId: createdPublicPageId,
           publicPageUrl: generatePublicPageUrl(createdPublicPageId, tenant),
-          claimRequestId,
+          claimRequestId: finalClaimRequestId,
+          emailSent: emailSent,
         });
-        setSuccessMessage('公開ページURLが確定し、確認メールを送信しました。');
       } else {
         console.warn('⚠️ claimRequestId is not available, skipping email notification');
         console.warn('This may happen if:');

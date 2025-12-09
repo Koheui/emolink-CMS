@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { MemorySelector } from '@/components/memory-selector';
 
 interface NavItem {
   title: string;
@@ -32,8 +33,11 @@ interface AdminLayoutProps {
 export function AdminLayout({ children }: AdminLayoutProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, currentTenant, logout } = useSecretKeyAuth();
+  const { user, currentTenant, logout, isAdmin } = useSecretKeyAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  
+  // エンドユーザー向けのページかどうか（メモリー作成・編集ページ）
+  const isMemoryPage = pathname?.startsWith('/memories');
 
   const getTenantLabel = (tenant: string) => {
     switch (tenant) {
@@ -66,8 +70,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       icon: Users,
     },
     {
-      title: '注文管理',
-      href: '/orders',
+      title: '注文管理（CRM）',
+      href: '/crm/orders',
       icon: FileText,
     },
   ];
@@ -116,7 +120,6 @@ export function AdminLayout({ children }: AdminLayoutProps) {
               <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-cyan-600 rounded-lg flex items-center justify-center">
                 <Shield className="w-5 h-5 text-white" />
               </div>
-              <span className="font-bold text-lg text-gray-900">CMS</span>
             </div>
             <Button
               variant="ghost"
@@ -211,11 +214,29 @@ export function AdminLayout({ children }: AdminLayoutProps) {
               <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-cyan-600 rounded-lg flex items-center justify-center">
                 <Shield className="w-5 h-5 text-white" />
               </div>
-              <span className="font-bold text-lg text-gray-900">CMS</span>
             </div>
-            <div className="w-10" /> {/* スペーサー */}
+            {isMemoryPage && !isAdmin && (
+              <div className="flex-1 flex justify-end ml-4">
+                <MemorySelector />
+              </div>
+            )}
+            {!isMemoryPage && <div className="w-10" />} {/* スペーサー */}
           </div>
         </header>
+        
+        {/* デスクトップ用ヘッダー（メモリーページの場合のみ） */}
+        {isMemoryPage && !isAdmin && (
+          <header className="sticky top-0 z-30 bg-white border-b border-gray-200 hidden lg:block">
+            <div className="flex items-center justify-between p-4 px-8">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-cyan-600 rounded-lg flex items-center justify-center">
+                  <Shield className="w-5 h-5 text-white" />
+                </div>
+              </div>
+              <MemorySelector />
+            </div>
+          </header>
+        )}
 
         {/* ページコンテンツ */}
         <main className="min-h-screen">

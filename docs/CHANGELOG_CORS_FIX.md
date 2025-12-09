@@ -106,3 +106,7 @@ firebase deploy --only functions:claimSetUrls
 **作成日**: 2025-01-26  
 **バージョン**: 1.0
 
+
+
+
+

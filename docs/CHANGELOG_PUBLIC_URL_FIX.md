@@ -187,3 +187,7 @@ sessionStorageからinitialSetupPublicPageIdを読み込み
 2. メール送信失敗時のリトライ機能
 3. 公開ページURLの検証機能の追加
 
+
+
+
+

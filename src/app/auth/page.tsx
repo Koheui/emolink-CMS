@@ -28,6 +28,13 @@ function AuthContent() {
   const searchParams = useSearchParams();
 
   useEffect(() => {
+    console.log('[Auth Page] Component mounted');
+    return () => {
+      console.log('[Auth Page] Component unmounted');
+    };
+  }, []);
+
+  useEffect(() => {
     // リダイレクトメッセージをチェック（/claimからリダイレクトされた場合）
     if (typeof window !== 'undefined') {
       const redirectMessage = sessionStorage.getItem('redirectMessage');
@@ -133,9 +140,9 @@ function AuthContent() {
         
         setMessage('認証が完了しました。管理画面に移動します。');
         
-        // 管理画面にリダイレクト
+        // 管理画面にリダイレクト（CRMに統一）
         setTimeout(() => {
-          window.location.href = '/admin/users';
+          window.location.href = '/crm';
         }, 1500);
       } else {
         // エンドユーザーの場合
@@ -220,57 +227,91 @@ function AuthContent() {
       const userDocRef = doc(db, 'users', firebaseUser.uid);
       const userDocSnap = await getDoc(userDocRef);
 
-      let userData: any;
-      if (userDocSnap.exists()) {
-        const data = userDocSnap.data();
-        userData = {
+      // まずstaffコレクションを確認（管理者の場合）
+      const { getStaffByUid } = await import('@/lib/firestore');
+      const staffData = await getStaffByUid(firebaseUser.uid);
+
+      if (staffData) {
+        // 管理者（スタッフ）の場合
+        const staffInfo = {
           uid: firebaseUser.uid,
           email: firebaseUser.email || email,
-          displayName: data.displayName || firebaseUser.displayName || email.split('@')[0],
-          tenant: data.tenant || 'futurestudio',
-          role: data.role || 'user',
-          createdAt: data.createdAt?.toDate() || new Date(),
-          updatedAt: data.updatedAt?.toDate() || new Date(),
+          displayName: staffData.displayName || firebaseUser.displayName || email.split('@')[0],
+          tenant: staffData.adminTenant,
+          role: staffData.role,
+          createdAt: staffData.createdAt,
+          updatedAt: staffData.updatedAt,
         };
+        
+        // SecretKey認証システムのセッションに保存
+        sessionStorage.setItem('secretKeyStaff', JSON.stringify(staffInfo));
+        sessionStorage.setItem('secretKeyTenant', staffData.adminTenant);
+        sessionStorage.setItem('secretKeyExpiry', (Date.now() + 24 * 60 * 60 * 1000).toString());
+
+        localStorage.setItem('secretKeyStaff', JSON.stringify(staffInfo));
+        localStorage.setItem('secretKeyTenant', staffData.adminTenant);
+        localStorage.setItem('secretKeyExpiry', (Date.now() + 24 * 60 * 60 * 1000).toString());
+
+        setMessage('ログインに成功しました。管理画面に移動します。');
+        
+        // 管理画面にリダイレクト（CRMまたはadmin/users）
+        setTimeout(() => {
+          window.location.href = '/crm';
+        }, 1500);
       } else {
-        // Firestoreにユーザー情報がない場合、新規作成
-        const { setDoc } = await import('firebase/firestore');
-        const { getCurrentTenant } = await import('@/lib/security/tenant-validation');
-        const currentTenant = getCurrentTenant();
-        
-        userData = {
-          uid: firebaseUser.uid,
-          email: firebaseUser.email || email,
-          displayName: firebaseUser.displayName || email.split('@')[0],
-          tenant: currentTenant,
-          role: 'user',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-        
-        await setDoc(userDocRef, userData);
-      }
-
-      // SecretKey認証システムのセッションに保存
-      sessionStorage.setItem('secretKeyUser', JSON.stringify(userData));
-      sessionStorage.setItem('secretKeyTenant', userData.tenant);
-      sessionStorage.setItem('secretKeyExpiry', (Date.now() + 24 * 60 * 60 * 1000).toString());
-
-      localStorage.setItem('secretKeyUser', JSON.stringify(userData));
-      localStorage.setItem('secretKeyTenant', userData.tenant);
-      localStorage.setItem('secretKeyExpiry', (Date.now() + 24 * 60 * 60 * 1000).toString());
-
-      setMessage('ログインに成功しました。');
-      
-      // fromClaimフラグがある場合、メモリ作成画面にリダイレクト
-      // それ以外はダッシュボードにリダイレクト
-      setTimeout(() => {
-        if (typeof window !== 'undefined' && sessionStorage.getItem('fromClaim') === 'true') {
-          router.push('/memories/create');
+        // エンドユーザーの場合
+        let userData: any;
+        if (userDocSnap.exists()) {
+          const data = userDocSnap.data();
+          userData = {
+            uid: firebaseUser.uid,
+            email: firebaseUser.email || email,
+            displayName: data.displayName || firebaseUser.displayName || email.split('@')[0],
+            tenant: data.tenant || 'futurestudio',
+            role: data.role || 'user',
+            createdAt: data.createdAt?.toDate() || new Date(),
+            updatedAt: data.updatedAt?.toDate() || new Date(),
+          };
         } else {
-          router.push('/dashboard');
+          // Firestoreにユーザー情報がない場合、新規作成
+          const { setDoc } = await import('firebase/firestore');
+          const { getCurrentTenant } = await import('@/lib/security/tenant-validation');
+          const currentTenant = getCurrentTenant();
+          
+          userData = {
+            uid: firebaseUser.uid,
+            email: firebaseUser.email || email,
+            displayName: firebaseUser.displayName || email.split('@')[0],
+            tenant: currentTenant,
+            role: 'user',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+          
+          await setDoc(userDocRef, userData);
         }
-      }, 1500);
+
+        // SecretKey認証システムのセッションに保存
+        sessionStorage.setItem('secretKeyUser', JSON.stringify(userData));
+        sessionStorage.setItem('secretKeyTenant', userData.tenant);
+        sessionStorage.setItem('secretKeyExpiry', (Date.now() + 24 * 60 * 60 * 1000).toString());
+
+        localStorage.setItem('secretKeyUser', JSON.stringify(userData));
+        localStorage.setItem('secretKeyTenant', userData.tenant);
+        localStorage.setItem('secretKeyExpiry', (Date.now() + 24 * 60 * 60 * 1000).toString());
+
+        setMessage('ログインに成功しました。');
+        
+        // fromClaimフラグがある場合、メモリ作成画面にリダイレクト
+        // それ以外はダッシュボードにリダイレクト
+        setTimeout(() => {
+          if (typeof window !== 'undefined' && sessionStorage.getItem('fromClaim') === 'true') {
+            router.push('/memories/create');
+          } else {
+            router.push('/dashboard');
+          }
+        }, 1500);
+      }
     } catch (error: any) {
       console.error('パスワードログインエラー:', error);
       let errorMessage = 'ログインに失敗しました';
@@ -621,6 +662,7 @@ function AuthContent() {
 }
 
 export default function ProductionAuth() {
+  console.log('[Auth Page] ProductionAuth component rendered');
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">

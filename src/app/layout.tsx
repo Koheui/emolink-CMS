@@ -9,6 +9,10 @@ const inter = Inter({ subsets: ['latin'] })
 export const metadata: Metadata = {
   title: 'emolink',
   description: 'NFC/QRコードで閲覧できる想い出ページを管理するCMSシステム',
+  icons: {
+    icon: '/favicon.ico',
+    apple: '/favicon.ico',
+  },
 }
 
 export const viewport: Viewport = {

@@ -6,19 +6,42 @@
   "storage": {
     "rules": "storage.rules"
   },
-  "hosting": {
-    "site": "emolink-cms",
-    "source": ".",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ],
-    "frameworksBackend": {
-      "region": "asia-northeast1",
-      "runtime": "nodejs20"
+  "hosting": [
+    {
+      "site": "emolink-cms",
+      "source": ".",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "frameworksBackend": {
+        "region": "asia-northeast1",
+        "runtime": "nodejs20",
+        "environmentVariables": {
+          "GMAIL_USER": "emolink.guide@gmail.com",
+          "GMAIL_APP_PASSWORD": "wiubgtzqlcsecbxw"
+        }
+      }
+    },
+    {
+      "site": "emolink-crm",
+      "source": ".",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "frameworksBackend": {
+        "region": "asia-northeast1",
+        "runtime": "nodejs20",
+        "environmentVariables": {
+          "GMAIL_USER": "emolink.guide@gmail.com",
+          "GMAIL_APP_PASSWORD": "wiubgtzqlcsecbxw"
+        }
+      }
     }
-  },
+  ],
   "functions": {
     "source": "functions",
     "runtime": "nodejs20",

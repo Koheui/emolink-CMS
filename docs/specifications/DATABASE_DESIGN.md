@@ -158,6 +158,8 @@ const snapshot = await getDocs(companiesRef);
 
 **テナント分離**: テナントID自体が分離キー
 
+**重要**: `tenants`コレクションには、`id`フィールド（識別可能なID、例: `emolink-direct-01`）とFirestoreドキュメントID（例: `store-1765044610296`）の両方が存在します。データ分離には`id`フィールドを使用します。
+
 **クエリ例**:
 ```typescript
 // 特定のテナント取得
@@ -187,6 +189,8 @@ const q = query(
   email: string;                 // メールアドレス
   displayName?: string;           // 表示名
   tenant: string;                 // テナントID（必須：データ分離のキー）
+                                  // 注意: tenantsコレクションのidフィールド（識別可能なID、例: emolink-direct-01）を使用
+                                  // FirestoreドキュメントID（例: store-1765044610296）は使用しない
   tenants?: string[];            // 複数テナント対応（配列）
   createdAt: Date;
   updatedAt: Date;
@@ -272,6 +276,8 @@ const q = query(
   id: string;                    // メモリID（ドキュメントID）
   ownerUid: string;              // 所有者UID（usersコレクションのUID）
   tenant: string;                 // テナントID（必須：データ分離のキー）
+                                  // 注意: tenantsコレクションのidフィールド（識別可能なID、例: emolink-direct-01）を使用
+                                  // FirestoreドキュメントID（例: store-1765044610296）は使用しない
   title: string;                  // タイトル
   type: 'personal' | 'family' | 'business';
   status: 'draft' | 'published';
@@ -322,6 +328,8 @@ const q = query(
 
 **テナント分離**: `tenant`フィールドで必ず分離（必須）
 
+**重要**: `tenant`フィールドには、`tenants`コレクションの`id`フィールド（識別可能なID、例: `emolink-direct-01`）を使用します。FirestoreドキュメントID（例: `store-1765044610296`）は使用しません。これにより、店舗スタッフが識別可能なIDでデータを管理できます。
+
 **クエリ例**:
 ```typescript
 // 特定のテナントの想い出ページ一覧
@@ -354,6 +362,8 @@ const q2 = query(
 {
   id: string;                    // 公開ページID（ドキュメントID）
   tenant: string;                 // テナントID（必須：データ分離のキー）
+                                  // 注意: tenantsコレクションのidフィールド（識別可能なID、例: emolink-direct-01）を使用
+                                  // FirestoreドキュメントID（例: store-1765044610296）は使用しない
   ownerUid?: string;              // 所有者UID（エンドユーザーが更新可能にするため）
   memoryId: string;               // 関連するメモリID
   title: string;                  // タイトル
@@ -467,6 +477,8 @@ const q = query(
   id: string;                    // リクエストID（ドキュメントID）
   email: string;                 // 顧客のメールアドレス
   tenant: string;                 // テナントID（必須：データ分離のキー）
+                                  // 注意: tenantsコレクションのidフィールド（識別可能なID、例: emolink-direct-01）を使用
+                                  // FirestoreドキュメントID（例: store-1765044610296）は使用しない
   lpId: string;                  // LP ID（どのLPから来たか）
   productType?: string;          // 商品タイプ（後方互換性）
   product?: string;              // 商品名
@@ -501,12 +513,24 @@ const q = query(
   // 販売店管理用情報
   notes?: string;                // 備考（お客様番号など、販売店ごとの管理用）
   
+  // 顧客情報（新規顧客登録時に入力）
+  customerInfo?: {
+    name?: string;               // 顧客名（お名前）
+    phone?: string;              // 電話番号
+  };
+  
   createdAt: Date;
   updatedAt: Date;
 }
 ```
 
 **テナント分離**: `tenant`フィールドで必ず分離（必須）
+
+**顧客情報の取得優先順位**:
+1. `claimRequests.customerInfo`（優先）
+2. `orders.customerInfo`（フォールバック）
+
+`customerInfo`は新規顧客登録時に店舗スタッフが入力した「お名前」と「電話番号」を保存します。CRMで顧客を識別するために使用されます。
 
 **クエリ例**:
 ```typescript
@@ -532,6 +556,8 @@ const q = query(
 {
   id: string;                    // 注文ID（ドキュメントID）
   tenant: string;                 // テナントID（必須：データ分離のキー）
+                                  // 注意: tenantsコレクションのidフィールド（識別可能なID、例: emolink-direct-01）を使用
+                                  // FirestoreドキュメントID（例: store-1765044610296）は使用しない
   emailHash: string;             // メールアドレスのハッシュ
   email?: string;                // メールアドレス（オプショナル）
   memoryId: string;              // 関連するメモリID
@@ -564,7 +590,13 @@ const q = query(
     productionCompletedAt?: Date;
   };
   
-  // 住所情報
+  // 顧客情報（新規顧客登録時に入力）
+  customerInfo?: {
+    name?: string;               // 顧客名（お名前）
+    phone?: string;              // 電話番号
+  };
+  
+  // 住所情報（配送先）
   shippingAddress?: {
     postalCode: string;
     prefecture: string;
@@ -608,6 +640,12 @@ const q = query(
 ```
 
 **テナント分離**: `tenant`フィールドで必ず分離（必須）
+
+**顧客情報の取得優先順位**:
+1. `claimRequests.customerInfo`（優先）
+2. `orders.customerInfo`（フォールバック）
+
+`customerInfo`は新規顧客登録時に店舗スタッフが入力した「お名前」と「電話番号」を保存します。CRMで顧客を識別するために使用されます。
 
 **クエリ例**:
 ```typescript
@@ -763,12 +801,22 @@ const q = query(
    );
    ```
 
-3. **データ作成時は必ず`tenant`フィールドを設定**
+3. **データ作成時は必ず`tenant`フィールドを設定（識別可能なIDを使用）**
    ```typescript
-   // ✅ 正しい例
+   // ✅ 正しい例（識別可能なIDを使用）
+   const tenantDoc = await db.collection('tenants').doc(firestoreDocId).get();
+   const storeId = tenantDoc.data()?.id || firestoreDocId; // 識別可能なIDを取得
+   
    await addDoc(collection(db, 'memories'), {
      ...memoryData,
-     tenant: tenantId, // 必須
+     tenant: storeId, // 必須：識別可能なID（tenants.idフィールド）
+     ownerUid: uid,
+   });
+   
+   // ❌ 間違った例（FirestoreドキュメントIDを使用）
+   await addDoc(collection(db, 'memories'), {
+     ...memoryData,
+     tenant: 'store-1765044610296', // 識別不可能なIDは使用しない
      ownerUid: uid,
    });
    ```
@@ -1242,6 +1290,153 @@ Firebase Storageのファイルが残っている場合、そこから情報を�
 - 2024-01-XX: テナント分離の原則を明確化
 - 2024-12-XX: 企業ID（companyId）と店舗ID（tenantId）の分離を明確化
 - 2024-12-XX: 顧客削除ポリシーとデータ復旧ガイドを追加
+
+---
+
+## 🏢 テナント・企業削除時のユーザーデータ保持ポリシー
+
+### 基本方針
+
+**企業や店舗が廃止（削除）されても、ユーザーの情報は保持され、継続して閲覧可能です。**
+
+### データ保持の原則
+
+1. **ユーザーデータは削除されない**
+   - `users`コレクションのデータは保持される
+   - `memories`コレクションのデータは保持される
+   - `publicPages`コレクションのデータは保持される
+   - `assets`コレクションのデータは保持される
+   - `orders`コレクションのデータは保持される
+
+2. **テナントの削除ではなく、ステータス変更を推奨**
+   - テナントを物理的に削除するのではなく、`status`を`'inactive'`または`'suspended'`に変更
+   - これにより、データへのアクセス制御を柔軟に行える
+
+### テナントステータスの意味
+
+```typescript
+{
+  status: 'active' | 'inactive' | 'suspended';
+}
+```
+
+- **`active`**: 通常運用中
+- **`inactive`**: 一時停止（データは保持、新規登録は不可）
+- **`suspended`**: 停止（データは保持、アクセス制限あり）
+
+### ユーザーデータへのアクセス
+
+#### 1. ユーザー自身によるアクセス
+
+Firestoreルールにより、ユーザーは自分のデータを常に閲覧可能：
+
+```javascript
+// firestore.rules
+match /memories/{memoryId} {
+  allow read: if isOwner(resource.data.ownerUid) || 
+               isSuperAdmin() || 
+               isTenantAdmin(resource.data.tenant);
+}
+```
+
+- ✅ ユーザーは自分の`memories`を閲覧可能
+- ✅ ユーザーは自分の`publicPages`を閲覧可能
+- ✅ ユーザーは自分の`assets`を閲覧可能
+- ✅ テナントが削除されても、`isOwner`チェックによりアクセス可能
+
+#### 2. 公開ページへのアクセス
+
+公開ページは誰でも閲覧可能：
+
+```javascript
+match /publicPages/{pageId} {
+  allow read: if true; // 誰でも読み取り可能
+}
+```
+
+- ✅ 公開ページのURLが分かれば、誰でも閲覧可能
+- ✅ テナントが削除されても、公開ページは閲覧可能
+
+### 実装推奨事項
+
+#### 1. テナント削除時の処理
+
+```typescript
+// ❌ 推奨しない: テナントを物理的に削除
+await db.collection('tenants').doc(tenantId).delete();
+
+// ✅ 推奨: ステータスを変更
+await db.collection('tenants').doc(tenantId).update({
+  status: 'inactive',
+  updatedAt: admin.firestore.FieldValue.serverTimestamp()
+});
+```
+
+#### 2. ユーザーデータの保持確認
+
+テナント削除前に、関連するユーザーデータを確認：
+
+```typescript
+// テナントに関連するユーザーデータの確認
+const memoriesCount = await db.collection('memories')
+  .where('tenant', '==', tenantId)
+  .count()
+  .get();
+
+const usersCount = await db.collection('users')
+  .where('tenant', '==', tenantId)
+  .count()
+  .get();
+
+console.log(`テナント ${tenantId} に関連するデータ:`, {
+  memories: memoriesCount.data().count,
+  users: usersCount.data().count
+});
+```
+
+#### 3. データ移行（オプション）
+
+必要に応じて、ユーザーデータを別のテナントに移行：
+
+```typescript
+// ユーザーデータを別のテナントに移行
+const batch = db.batch();
+const memoriesSnapshot = await db.collection('memories')
+  .where('tenant', '==', oldTenantId)
+  .get();
+
+memoriesSnapshot.docs.forEach(doc => {
+  batch.update(doc.ref, {
+    tenant: newTenantId,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+});
+
+await batch.commit();
+```
+
+### セキュリティ考慮事項
+
+1. **データアクセス制御**
+   - テナントが`inactive`または`suspended`の場合、新規登録を制限
+   - 既存ユーザーのデータアクセスは許可（`isOwner`チェック）
+
+2. **公開ページの継続性**
+   - 公開ページのURLは変更されない
+   - テナントが削除されても、公開ページは閲覧可能
+
+3. **データの整合性**
+   - テナント削除時は、関連データの整合性を確認
+   - 必要に応じて、データ移行を検討
+
+### まとめ
+
+- ✅ **ユーザーデータは保持される**: テナントが削除されても、ユーザーのデータは削除されない
+- ✅ **継続して閲覧可能**: ユーザーは自分のデータを常に閲覧可能
+- ✅ **公開ページは継続**: 公開ページのURLが分かれば、誰でも閲覧可能
+- ⚠️ **テナント削除は非推奨**: テナントを物理的に削除するのではなく、`status`を変更することを推奨
+
+**重要**: 企業や店舗が廃止されても、ユーザーの想い出ページは保護され、継続して閲覧可能です。
 
 ---
 

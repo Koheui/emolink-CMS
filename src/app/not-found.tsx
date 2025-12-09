@@ -28,17 +28,6 @@ export default function NotFound() {
                 ログインページへ戻る
               </Link>
             </Button>
-            
-            <Button 
-              variant="outline" 
-              asChild 
-              className="w-full border-white/20 text-white/80 hover:bg-white/10"
-            >
-              <Link href="/memories/create">
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                想い出ページ作成へ
-              </Link>
-            </Button>
           </div>
         </CardContent>
       </Card>

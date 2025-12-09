@@ -17,6 +17,7 @@ export interface Staff {
   displayName?: string;
   role: 'tenantAdmin' | 'superAdmin' | 'editor' | 'viewer'; // 'fulfillmentOperator'を'editor'に変更、'viewer'を追加
   adminTenant: string; // 管理するテナントID
+  companyId?: string; // 所属企業ID（オプショナル）
   permissions?: {
     canViewCRM?: boolean;        // CRM閲覧権限
     canEditOrders?: boolean;      // 注文編集権限
@@ -51,6 +52,7 @@ export interface Memory {
   description?: string;
   bio?: string; // プロフィール文
   topicsTitle?: string; // Topicsセクションのタイトル
+  messageTitle?: string; // Messageセクションのタイトル
   design: {
     theme: string;
     layout: string;
@@ -65,6 +67,7 @@ export interface Memory {
     text: string;
     background: string;
     cardBackground?: string;
+    gradient?: string; // グラデーションの色
   };
   fontSizes?: {
     title?: number;
@@ -79,6 +82,14 @@ export interface Memory {
     [key: string]: any;
   };
   storageUsed?: number; // ストレージ使用量（バイト単位、想い出ページごとに200MB制限）
+  // 利用期限関連
+  expiresAt?: Date;              // 有効期限（デフォルト: createdAt + 20年）
+  extensionCount?: number;        // 延長回数（デフォルト: 0）
+  lastExtendedAt?: Date;          // 最後に延長した日時
+  // ストレージ関連
+  storageLimit?: number;          // ストレージ制限（バイト単位、デフォルト: 120MB）
+  storageSubscriptionId?: string; // ストレージ拡張サブスクリプションID（Stripe用、後日）
+  storageSubscriptionStatus?: 'active' | 'canceled' | 'past_due'; // サブスクリプションステータス
   createdAt: Date;
   updatedAt: Date;
 }
@@ -148,7 +159,10 @@ export interface PublicPage {
     text: string;
     background: string;
     cardBackground?: string;
+    gradient?: string; // グラデーションの色
   };
+  messageTitle?: string; // Messageセクションのタイトル
+  topicsTitle?: string; // Topicsセクションのタイトル
   media: {
     cover?: string;
     profile?: string;
@@ -182,9 +196,14 @@ export interface Order {
   emailHash: string;
   email?: string;       // メールアドレス（オプショナル、メール送信時に使用）
   memoryId: string;
+  lpId?: string;        // LP ID（店舗名取得用）
   productType: string;  // 後方互換性のため保持（廃止予定）
   product?: string;     // 新規：商品名を直接入力
   status: 'draft' | 'paid' | 'nfcReady' | 'shipped' | 'delivered';
+  customerInfo?: {      // 顧客情報（新規顧客登録時に入力）
+    name?: string;      // 顧客名（お名前）
+    phone?: string;     // 電話番号
+  };
   
   // Stripe決済情報
   stripePaymentIntentId?: string;
@@ -278,6 +297,13 @@ export interface ClaimRequest {
   emailHeaderSubtitle?: string; // メールヘッダーサブタイトル
   emailMainMessage?: string;    // メール本文メッセージ
   emailFooterMessage?: string;   // メールフッターメッセージ
+  // 販売店管理用情報
+  notes?: string;                // 備考（お客様番号など、販売店ごとの管理用）
+  // 顧客情報（新規顧客登録時に入力）
+  customerInfo?: {
+    name?: string;               // 顧客名（お名前）
+    phone?: string;              // 電話番号
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -330,6 +356,7 @@ export interface Company {
   legalName?: string;
   description?: string;
   contact: {
+    name?: string; // 担当者名
     email?: string;
     phone?: string;
     address?: string;
@@ -352,11 +379,19 @@ export interface Tenant {
   description?: string;
   allowedLpIds: string[];
   enabledProductTypes: string[];
+  contact?: {
+    email?: string;
+    phone?: string;
+    address?: string;
+    postalCode?: string;
+  };
   settings: {
     maxClaimRequestsPerHour?: number;
     emailTemplate?: string;
     branding?: {
       logo?: string;
+      bannerImageUrl?: string; // バナー画像URL（LP側の設計に合わせて追加）
+      bannerLinkUrl?: string; // バナーリンクURL（LP側の設計に合わせて追加）
       colors?: string[];
       theme?: string;
     };
@@ -365,6 +400,28 @@ export interface Tenant {
   status: 'active' | 'inactive' | 'suspended';
   createdAt: Date;
   updatedAt: Date;
+}
+
+// 広告バナーの型定義
+export interface Advertisement {
+  id: string;
+  tenant: string; // テナントID
+  title?: string; // 広告タイトル（オプション）
+  imageUrl?: string; // バナー画像URL（オプション、linkUrlがある場合はOGPから取得可能）
+  linkUrl?: string; // クリック時のリンクURL（オプション）
+  displayOrder: number; // 表示順序（小さい順）
+  isActive: boolean; // 有効/無効
+  displayLocation: 'cms' | 'lp' | 'both'; // 表示場所（CMS、LP、両方）
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// OGP情報の型定義
+export interface OGPData {
+  title?: string;
+  description?: string;
+  image?: string;
+  url?: string;
 }
 
 // アクリルスタンド用写真の型定義

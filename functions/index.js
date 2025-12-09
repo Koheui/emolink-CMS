@@ -63,3 +63,11 @@ exports.sendLoginEmail = functions.https.onCall(async (data, context) => {
   }
 });
 
+// OGP取得API（コンパイル後のパス）
+try {
+  const { getOgp } = require('./lib/functions/src/get-ogp');
+  exports.getOgp = getOgp;
+} catch (e) {
+  console.warn('get-ogp not found, skipping');
+}
+

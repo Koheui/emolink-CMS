@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Plus, Camera, Video as VideoIcon, Music, Image as ImageIcon, Trash2, Eye, EyeOff, FileText, Edit, X, ArrowUp, Play, Mountain, ExternalLink, Palette, LogOut, Settings, ArrowRight } from 'lucide-react';
+import { Loader2, Plus, Camera, Video as VideoIcon, Music, Image as ImageIcon, Trash2, Eye, EyeOff, FileText, Edit, X, ArrowUp, Play, Mountain, ExternalLink, Palette, ArrowUpRight, Settings, ArrowRight, ArrowUpCircle } from 'lucide-react';
 import { collection, addDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage, auth } from '@/lib/firebase';
@@ -16,8 +16,14 @@ import { useQueryClient } from '@tanstack/react-query';
 import { formatDate, generatePublicPageUrl, generateNfcUrl } from '@/lib/utils';
 import { getCurrentTenant } from '@/lib/security/tenant-validation';
 import { getMemoryById, updateMemory, deleteMemory, getClaimRequestById, createPublicPage, updatePublicPage, getPublicPageById } from '@/lib/firestore';
+import { checkStorageLimit as checkStorageLimitLib, getStorageLimit, DEFAULT_STORAGE_LIMIT } from '@/lib/storage-limit';
+import { isExpired } from '@/lib/expiration';
 import { doc, updateDoc, query, where, getDocs, getDoc } from 'firebase/firestore';
 import { ClaimRequest } from '@/types';
+import { MemorySelector } from '@/components/memory-selector';
+import { MemoryExpirationBanner } from '@/components/memory-expiration-banner';
+import { StorageLimitBanner } from '@/components/storage-limit-banner';
+import { TenantAdvertisement } from '@/components/tenant-advertisement';
 
 interface AlbumItem {
   id: string;
@@ -32,6 +38,7 @@ interface MediaBlock {
   type: 'image' | 'video' | 'audio' | 'album' | 'text';
   url?: string;
   thumbnail?: string;
+  thumbnailUrl?: string; // テキストブロック用サムネイル画像URL
   visibility: 'public' | 'private';
   title?: string;
   description?: string;
@@ -49,7 +56,6 @@ function CreateMemoryPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [deletingMemoryId, setDeletingMemoryId] = useState<string | null>(null);
-  const [showExistingMemories, setShowExistingMemories] = useState(false);
   const [showNfcUrlModal, setShowNfcUrlModal] = useState(false);
   const [selectedMemoryForNfc, setSelectedMemoryForNfc] = useState<{ id: string; publicPageId?: string } | null>(null);
   
@@ -68,7 +74,7 @@ function CreateMemoryPageContent() {
     }
   }, []);
   
-  // 既存の想い出ページを取得
+  // 既存のemolinkを取得
   // デバッグ用: ユーザー情報をログ出力
   useEffect(() => {
     console.log('=== User Debug Info ===');
@@ -90,23 +96,49 @@ function CreateMemoryPageContent() {
   const [hasLoadedMemory, setHasLoadedMemory] = useState(false);
   const [lastLoadedMemoryId, setLastLoadedMemoryId] = useState<string | null>(null);
   
-  // ログイン後に既存のメモリが1つだけの場合、自動的にそのメモリにリダイレクト
+  // 最後に開いたページを保存
   useEffect(() => {
-    // 認証が完了し、既存のメモリが1つだけで、memoryIdがURLにない場合
+    if (memoryId && currentUser?.uid && typeof window !== 'undefined') {
+      localStorage.setItem(`lastMemoryId_${currentUser.uid}`, memoryId);
+    }
+  }, [memoryId, currentUser?.uid]);
+
+  // ログイン後に最後に開いたページを復元、なければ最初のメモリにリダイレクト
+  useEffect(() => {
+    // 認証が完了し、既存のメモリがある場合、最後に開いたページまたは最初のメモリにリダイレクト（エンドユーザー向け）
     if (
       !authLoading &&
       isAuthenticated &&
+      !isAdmin &&
       currentUser?.uid &&
-      existingMemories.length === 1 &&
+      existingMemories.length > 0 &&
       !memoryId &&
       !memoriesLoading &&
-      !existingMemoryLoading
+      !existingMemoryLoading &&
+      !hasLoadedMemory
     ) {
-      const firstMemory = existingMemories[0];
-      console.log('Auto-redirecting to existing memory:', firstMemory.id);
-      router.replace(`/memories/create?memoryId=${firstMemory.id}`, { scroll: false });
+      const userMemories = existingMemories.filter(m => m.ownerUid === currentUser?.uid);
+      if (userMemories.length > 0) {
+        // 最後に開いたページを取得
+        let targetMemoryId: string | null = null;
+        if (typeof window !== 'undefined') {
+          const lastMemoryId = localStorage.getItem(`lastMemoryId_${currentUser.uid}`);
+          // 最後に開いたページが存在するか確認
+          if (lastMemoryId && userMemories.some(m => m.id === lastMemoryId)) {
+            targetMemoryId = lastMemoryId;
+          }
+        }
+        
+        // 最後に開いたページがない場合は、最初のメモリを使用
+        if (!targetMemoryId) {
+          targetMemoryId = userMemories[0].id;
+        }
+        
+        console.log('Auto-redirecting to memory:', targetMemoryId);
+        router.replace(`/memories/create?memoryId=${targetMemoryId}`, { scroll: false });
+      }
     }
-  }, [authLoading, isAuthenticated, currentUser?.uid, existingMemories, memoryId, memoriesLoading, existingMemoryLoading, router]);
+  }, [authLoading, isAuthenticated, isAdmin, currentUser?.uid, existingMemories, memoryId, memoriesLoading, existingMemoryLoading, hasLoadedMemory, router]);
   
   // ログイン後に状態をリセット（再ログイン時に既存のメモリを読み込むため）
   // 無限ループを防ぐため、useRefでリセット済みフラグを管理
@@ -206,6 +238,8 @@ function CreateMemoryPageContent() {
   const [coverImageScale, setCoverImageScale] = useState(1);
   const [isDragging, setIsDragging] = useState(false);
   const [isDraggingProfile, setIsDraggingProfile] = useState(false);
+  const [draggedBlockId, setDraggedBlockId] = useState<string | null>(null);
+  const [dragOverBlockId, setDragOverBlockId] = useState<string | null>(null);
   // ドラッグ開始時の位置を記録（写真を動かすため）
   const [dragStartPos, setDragStartPos] = useState<{ x: number; y: number; posX: number; posY: number } | null>(null);
   const [dragStartPosProfile, setDragStartPosProfile] = useState<{ x: number; y: number; posX: number; posY: number } | null>(null);
@@ -228,18 +262,20 @@ function CreateMemoryPageContent() {
   const [accentColor, setAccentColor] = useState('#08af86');
   const [textColor, setTextColor] = useState('#ffffff');
   const [backgroundColor, setBackgroundColor] = useState('#000f24');
+  const [gradientColor, setGradientColor] = useState('#000000'); // グラデーションの色（デフォルトは黒）
   // エディットページの背景色とカード背景色は固定
   const editPageBackgroundColor = '#000';
   const editPageCardBackgroundColor = '#1a1a1a';
   const [titleFontSize, setTitleFontSize] = useState(35); // px単位
   const [bodyFontSize, setBodyFontSize] = useState(16); // px単位
   const [topicsTitle, setTopicsTitle] = useState('Topics');
+  const [messageTitle, setMessageTitle] = useState('Message');
   const [storageUsed, setStorageUsed] = useState(0); // 現在のストレージ使用量（バイト単位）
   const [claimRequest, setClaimRequest] = useState<ClaimRequest | null>(null);
   const [claimRequestLoading, setClaimRequestLoading] = useState(false);
   
-  // ストレージ制限（200MB = 200 * 1024 * 1024 バイト）
-  const STORAGE_LIMIT = 200 * 1024 * 1024; // 209715200 バイト
+  // ストレージ制限（既存のMemoryから取得、なければデフォルト値）
+  const STORAGE_LIMIT = existingMemory ? getStorageLimit(existingMemory) : DEFAULT_STORAGE_LIMIT;
   
   // claimRequestを取得（認証成功時にURLが確定されるため）
   useEffect(() => {
@@ -320,6 +356,7 @@ function CreateMemoryPageContent() {
   const titleInitializedRef = useRef(false);
   const descriptionInitializedRef = useRef(false);
   const bioInitializedRef = useRef(false);
+  const gradientColorInitializedRef = useRef(false);
   
   useEffect(() => {
     // 保存処理中は読み込み処理を実行しない
@@ -340,19 +377,20 @@ function CreateMemoryPageContent() {
         titleInitializedRef.current = false;
         descriptionInitializedRef.current = false;
         bioInitializedRef.current = false;
+        gradientColorInitializedRef.current = false;
       }
       
       // 既存のmemoryデータでstateを初期化（初回のみ）
       if (!titleInitializedRef.current) {
-        setTitle(existingMemory.title || '');
+      setTitle(existingMemory.title || '');
         titleInitializedRef.current = true;
       }
       if (!descriptionInitializedRef.current) {
-        setDescription(existingMemory.description || '');
+      setDescription(existingMemory.description || '');
         descriptionInitializedRef.current = true;
       }
       if (!bioInitializedRef.current) {
-        setBio(existingMemory.bio || '');
+      setBio(existingMemory.bio || '');
         bioInitializedRef.current = true;
       }
       setProfileImage(existingMemory.profileImage || null);
@@ -391,9 +429,15 @@ function CreateMemoryPageContent() {
       setAccentColor(existingMemory.colors?.accent || '#08af86');
       setTextColor(existingMemory.colors?.text || '#ffffff');
       setBackgroundColor(existingMemory.colors?.background || '#000f24');
+      // gradientColorは初回のみ設定（保存後に上書きされないようにする）
+      if (!gradientColorInitializedRef.current) {
+        setGradientColor(existingMemory.colors?.gradient || '#000000');
+        gradientColorInitializedRef.current = true;
+      }
       setTitleFontSize(existingMemory.fontSizes?.title || 35);
       setBodyFontSize(existingMemory.fontSizes?.body || 16);
       setTopicsTitle(existingMemory.topicsTitle || 'Topics');
+      setMessageTitle(existingMemory.messageTitle || 'Message');
       
       // 公開ページIDをstateに設定
       // 優先順位: existingMemory.publicPageId > sessionStorageのinitialSetupPublicPageId > currentPublicPageId
@@ -457,16 +501,28 @@ function CreateMemoryPageContent() {
     }
     
     if (type === 'album') {
-      // アルバムの場合は複数選択でアップロード
+      // アルバムの場合は複数選択でアップロード（画像と動画の両方を受け付ける）
       const input = document.createElement('input');
       input.type = 'file';
       input.multiple = true;
-      input.accept = 'image/*';
+      input.accept = 'image/*,video/*';
       input.onchange = async (e) => {
         const files = (e.target as HTMLInputElement).files;
-        if (!files || files.length === 0) return;
+        if (!files || files.length === 0) {
+          console.log('No files selected for album');
+          return;
+        }
         
+        console.log('Files selected for album:', files.length);
+        try {
         await handleAlbumUpload(Array.from(files));
+        } catch (error) {
+          console.error('Error in handleAlbumUpload:', error);
+        }
+      };
+      input.onerror = (e) => {
+        console.error('File input error:', e);
+        setError('ファイル選択でエラーが発生しました');
       };
       input.click();
     } else {
@@ -487,7 +543,7 @@ function CreateMemoryPageContent() {
     setShowUploadMenu(false);
   };
   
-  const handleUpdateBlock = (id: string, field: 'title' | 'description' | 'isTopic', value: string | boolean) => {
+  const handleUpdateBlock = (id: string, field: 'title' | 'description' | 'isTopic' | 'thumbnailUrl', value: string | boolean | undefined) => {
     setMediaBlocks(prev => prev.map(block => 
       block.id === id ? { ...block, [field]: value } : block
     ));
@@ -508,10 +564,24 @@ function CreateMemoryPageContent() {
 
   // ストレージ制限をチェックする関数
   const checkStorageLimit = (additionalSize: number): boolean => {
-    const newTotal = storageUsed + additionalSize;
-    if (newTotal > STORAGE_LIMIT) {
-      const usedMB = (storageUsed / (1024 * 1024)).toFixed(2);
-      const limitMB = (STORAGE_LIMIT / (1024 * 1024)).toFixed(0);
+    if (!existingMemory) {
+      // existingMemoryがない場合はデフォルト制限でチェック
+      const newTotal = storageUsed + additionalSize;
+      if (newTotal > DEFAULT_STORAGE_LIMIT) {
+        const usedMB = (storageUsed / (1024 * 1024)).toFixed(2);
+        const limitMB = (DEFAULT_STORAGE_LIMIT / (1024 * 1024)).toFixed(0);
+        const additionalMB = (additionalSize / (1024 * 1024)).toFixed(2);
+        setError(`ストレージ制限を超えています。現在の使用量: ${usedMB}MB / ${limitMB}MB。追加しようとしているファイル: ${additionalMB}MB。`);
+        return false;
+      }
+      return true;
+    }
+    
+    // 新しいライブラリ関数を使用
+    const result = checkStorageLimitLib(existingMemory, additionalSize);
+    if (!result.allowed) {
+      const usedMB = (result.currentUsed / (1024 * 1024)).toFixed(2);
+      const limitMB = (result.limit / (1024 * 1024)).toFixed(0);
       const additionalMB = (additionalSize / (1024 * 1024)).toFixed(2);
       setError(`ストレージ制限を超えています。現在の使用量: ${usedMB}MB / ${limitMB}MB。追加しようとしているファイル: ${additionalMB}MB。`);
       return false;
@@ -621,19 +691,40 @@ function CreateMemoryPageContent() {
   };
 
   const handleAlbumUpload = async (files: File[]) => {
+    console.log('=== handleAlbumUpload: Starting ===');
+    console.log('Files count:', files.length);
+    console.log('Current user UID:', currentUser?.uid);
+    console.log('Storage initialized:', !!storage);
+    console.log('Auth initialized:', !!auth);
+    
+    // ストレージの初期化チェック
+    if (!storage) {
+      console.error('❌ Storage is not initialized');
+      setError('ストレージが初期化されていません。ページをリロードしてください。');
+      return;
+    }
+    
     // ユーザー認証チェック
     if (!currentUser?.uid) {
-      console.error('User not authenticated, cannot upload album');
+      console.error('❌ User not authenticated, cannot upload album');
       setError('ログインが必要です。ページをリロードしてください。');
+      return;
+    }
+    
+    if (!files || files.length === 0) {
+      console.error('❌ No files provided');
+      setError('ファイルが選択されていません');
       return;
     }
     
     try {
       setUploading(true);
       setError(null); // エラーをクリア
+      console.log('✅ Starting album upload process...');
       
       // すべてのファイルのサイズを合計してチェック
       const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+      console.log('Total file size:', (totalSize / 1024 / 1024).toFixed(2), 'MB');
       if (!checkStorageLimit(totalSize)) {
         setUploading(false);
         return;
@@ -642,17 +733,41 @@ function CreateMemoryPageContent() {
       const albumItems: AlbumItem[] = [];
       
       // すべてのファイルをアップロード
-      for (const file of files) {
-        const storageRef = ref(storage, `memories/${currentUser.uid}/${Date.now()}_${file.name}`);
+      console.log('📤 Uploading', files.length, 'files...');
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        console.log(`📤 Uploading file ${i + 1}/${files.length}:`, file.name, `(${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+        
+        try {
+          // ファイル名のサニタイズ（特殊文字を削除）
+          const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+          const storageRef = ref(storage, `memories/${currentUser.uid}/${Date.now()}_${i}_${sanitizedFileName}`);
+          console.log('📤 Storage ref created:', storageRef.fullPath);
+          
         const snapshot = await uploadBytes(storageRef, file);
+          console.log('✅ Upload complete for file:', file.name);
+          
         const downloadURL = await getDownloadURL(snapshot.ref);
+          console.log('✅ Download URL obtained for file:', file.name);
         
         albumItems.push({
           id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
           url: downloadURL,
           fileSize: file.size,
         });
+          console.log('✅ Album item added:', { id: albumItems[albumItems.length - 1].id, url: downloadURL.substring(0, 50) });
+        } catch (fileError: any) {
+          console.error(`❌ Error uploading file ${file.name}:`, fileError);
+          console.error('File error details:', {
+            code: fileError.code,
+            message: fileError.message,
+            stack: fileError.stack
+          });
+          throw new Error(`ファイル「${file.name}」のアップロードに失敗しました: ${fileError.message || fileError.code || '不明なエラー'}`);
+        }
       }
+      
+      console.log('✅ All files uploaded. Total album items:', albumItems.length);
       
       // ストレージ使用量を更新
       await updateStorageUsed(totalSize);
@@ -695,11 +810,71 @@ function CreateMemoryPageContent() {
         return updated;
       });
     } catch (err: any) {
-      console.error('Album upload error:', err);
-      setError('アルバムのアップロードに失敗しました');
+      console.error('❌ Album upload error:', err);
+      console.error('Error details:', {
+        message: err.message,
+        code: err.code,
+        stack: err.stack
+      });
+      
+      // より詳細なエラーメッセージを表示
+      let errorMessage = 'アルバムのアップロードに失敗しました';
+      if (err.code === 'storage/unauthorized') {
+        errorMessage = 'アップロード権限がありません。ログイン状態を確認してください。';
+      } else if (err.code === 'storage/canceled') {
+        errorMessage = 'アップロードがキャンセルされました。';
+      } else if (err.code === 'storage/unknown') {
+        errorMessage = '不明なエラーが発生しました。ネットワーク接続を確認してください。';
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      setError(errorMessage);
     } finally {
       setUploading(false);
     }
+  };
+
+  // 動画からサムネイルを生成する関数
+  const generateVideoThumbnail = async (videoFile: File): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement('video');
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      if (!ctx) {
+        reject(new Error('Canvas context not available'));
+        return;
+      }
+      
+      video.preload = 'metadata';
+      video.onloadedmetadata = () => {
+        video.currentTime = 0.1; // 0.1秒の位置からフレームを取得
+      };
+      
+      video.onseeked = () => {
+        try {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob((blob) => {
+            if (blob) {
+              resolve(blob);
+            } else {
+              reject(new Error('Failed to create blob from canvas'));
+            }
+          }, 'image/jpeg', 0.8);
+        } catch (error) {
+          reject(error);
+        }
+      };
+      
+      video.onerror = (error) => {
+        reject(new Error('Video loading error'));
+      };
+      
+      video.src = URL.createObjectURL(videoFile);
+    });
   };
 
   const handleFileUpload = async (file: File, type: 'image' | 'video' | 'audio') => {
@@ -762,24 +937,49 @@ function CreateMemoryPageContent() {
       // ストレージ使用量を更新
       await updateStorageUsed(file.size);
       
+      // 動画の場合はサムネイルを生成してアップロード
+      let thumbnailUrl: string | undefined;
+      if (type === 'video') {
+        try {
+          console.log('Generating video thumbnail...');
+          const thumbnailBlob = await generateVideoThumbnail(file);
+          console.log('Thumbnail generated, uploading to Firebase Storage...');
+          
+          // サムネイルをFirebase Storageにアップロード
+          const thumbnailPath = `memories/${currentUser.uid}/${Date.now()}_${file.name}_thumbnail.jpg`;
+          const thumbnailRef = ref(storage, thumbnailPath);
+          await uploadBytes(thumbnailRef, thumbnailBlob);
+          thumbnailUrl = await getDownloadURL(thumbnailRef);
+          
+          // サムネイルのストレージ使用量も更新
+          await updateStorageUsed(thumbnailBlob.size);
+          
+          console.log('Thumbnail uploaded:', thumbnailUrl?.substring(0, 100));
+        } catch (thumbnailError) {
+          console.error('Failed to generate/upload thumbnail:', thumbnailError);
+          // サムネイル生成に失敗しても動画のアップロードは続行
+        }
+      }
+      
       const newBlock: MediaBlock = {
         id: Date.now().toString(),
         type,
         url: downloadURL,
+        thumbnailUrl, // サムネイルURLを追加
         visibility: 'public',
         fileSize: file.size,
       };
       
       console.log('=== handleFileUpload: New block created ===');
-      console.log('New block:', { id: newBlock.id, type: newBlock.type, hasUrl: !!newBlock.url, url: newBlock.url?.substring(0, 100) });
+      console.log('New block:', { id: newBlock.id, type: newBlock.type, hasUrl: !!newBlock.url, hasThumbnail: !!newBlock.thumbnailUrl, url: newBlock.url?.substring(0, 100) });
       
       setMediaBlocks(prev => {
         const updated = [...prev, newBlock];
         console.log('=== setMediaBlocks (file) ===');
         console.log('Previous mediaBlocks count:', prev.length);
-        console.log('New block:', { id: newBlock.id, type: newBlock.type, hasUrl: !!newBlock.url, url: newBlock.url?.substring(0, 50) });
+        console.log('New block:', { id: newBlock.id, type: newBlock.type, hasUrl: !!newBlock.url, hasThumbnail: !!newBlock.thumbnailUrl, url: newBlock.url?.substring(0, 50) });
         console.log('Updated mediaBlocks count:', updated.length);
-        console.log('Updated mediaBlocks:', updated.map(b => ({ id: b.id, type: b.type, hasUrl: !!b.url, url: b.url?.substring(0, 50) })));
+        console.log('Updated mediaBlocks:', updated.map(b => ({ id: b.id, type: b.type, hasUrl: !!b.url, hasThumbnail: !!b.thumbnailUrl, url: b.url?.substring(0, 50) })));
         // refも同時に更新
         mediaBlocksRef.current = updated;
         console.log('mediaBlocksRef updated, current count:', mediaBlocksRef.current.length);
@@ -1035,10 +1235,12 @@ function CreateMemoryPageContent() {
         type: b.type, 
         hasUrl: !!b.url, 
         url: b.url?.substring(0, 50),
+        hasThumbnailUrl: !!b.thumbnailUrl,
+        thumbnailUrl: b.thumbnailUrl?.substring(0, 50),
         hasAlbumItems: !!b.albumItems,
         albumItemsCount: b.albumItems?.length || 0
       })));
-      
+
       // 現在のストレージ使用量を計算（blocksから）
       const currentStorageUsed = latestMediaBlocks.reduce((sum, block) => {
         if (block.type === 'album' && block.albumItems) {
@@ -1048,6 +1250,29 @@ function CreateMemoryPageContent() {
         }
         return sum;
       }, 0);
+
+      // undefinedの値を再帰的に除外するヘルパー関数
+      const removeUndefined = (obj: any): any => {
+        if (obj === null || obj === undefined) {
+          return null;
+        }
+        if (Array.isArray(obj)) {
+          return obj.map(item => removeUndefined(item)).filter(item => item !== null && item !== undefined);
+        }
+        if (typeof obj === 'object' && obj.constructor === Object) {
+          const cleaned: any = {};
+          for (const key in obj) {
+            if (obj.hasOwnProperty(key) && obj[key] !== undefined) {
+              const cleanedValue = removeUndefined(obj[key]);
+              if (cleanedValue !== null && cleanedValue !== undefined) {
+                cleaned[key] = cleanedValue;
+              }
+            }
+          }
+          return cleaned;
+        }
+        return obj;
+      };
 
       // Firestoreはundefinedを許可しないため、nullに変換またはフィールドを削除
       // ownerUidはauth.currentUser.uidを使用（Firestoreのセキュリティルールで認証が通るように）
@@ -1060,17 +1285,24 @@ function CreateMemoryPageContent() {
         };
         if (block.url) blockData.url = block.url;
         if (block.thumbnail) blockData.thumbnail = block.thumbnail;
+        if (block.thumbnailUrl) blockData.thumbnailUrl = block.thumbnailUrl; // 動画のサムネイルURLを保存
         if (block.title) blockData.title = block.title;
         if (block.description) blockData.description = block.description;
         if (block.isTopic !== undefined) blockData.isTopic = block.isTopic;
-        if (block.fileSize) blockData.fileSize = block.fileSize;
-        if (block.albumItems) blockData.albumItems = block.albumItems.map(item => ({
-          id: item.id,
-          url: item.url,
-          title: item.title,
-          description: item.description,
-          fileSize: item.fileSize,
-        }));
+        if (block.fileSize !== undefined && block.fileSize !== null) blockData.fileSize = block.fileSize;
+        if (block.albumItems && block.albumItems.length > 0) {
+          blockData.albumItems = block.albumItems.map(item => {
+            const itemData: any = {
+              id: item.id,
+              url: item.url,
+            };
+            // undefinedの値を除外（Firestoreはundefinedを許可しない）
+            if (item.title !== undefined && item.title !== null) itemData.title = item.title;
+            if (item.description !== undefined && item.description !== null) itemData.description = item.description;
+            if (item.fileSize !== undefined && item.fileSize !== null) itemData.fileSize = item.fileSize;
+            return itemData;
+          });
+        }
         return blockData;
       });
       
@@ -1083,6 +1315,7 @@ function CreateMemoryPageContent() {
           accent: accentColor,
           text: textColor,
           background: backgroundColor,
+          gradient: gradientColor || '#000000', // グラデーション色を追加
         },
         fontSizes: {
           title: titleFontSize,
@@ -1094,6 +1327,8 @@ function CreateMemoryPageContent() {
       
       console.log('=== Saving memory data ===');
       console.log('Memory ID:', memoryId || 'new');
+      console.log('Gradient color being saved:', gradientColor);
+      console.log('Memory data colors:', memoryData.colors);
       console.log('Latest mediaBlocks count:', latestMediaBlocks.length);
       console.log('Latest mediaBlocks with URLs:', latestMediaBlocks.filter(b => b.url).map(b => ({ 
         id: b.id, 
@@ -1113,7 +1348,9 @@ function CreateMemoryPageContent() {
       console.log('Blocks to save with URLs:', blocksToSave.filter(b => b.url).map(b => ({ 
         id: b.id, 
         type: b.type, 
-        url: b.url?.substring(0, 100)
+        url: b.url?.substring(0, 100),
+        hasThumbnailUrl: !!b.thumbnailUrl,
+        thumbnailUrl: b.thumbnailUrl?.substring(0, 100)
       })));
       
       console.log('Owner UID:', memoryData.ownerUid);
@@ -1133,6 +1370,14 @@ function CreateMemoryPageContent() {
         memoryData.coverImageScale = coverImageScale;
       }
       if (topicsTitle) memoryData.topicsTitle = topicsTitle;
+      if (messageTitle) memoryData.messageTitle = messageTitle;
+
+      // memoryDataからundefinedの値を完全に除外
+      const cleanedMemoryData = removeUndefined(memoryData);
+      
+      console.log('=== Cleaned memory data ===');
+      console.log('Cleaned memoryData keys:', Object.keys(cleanedMemoryData));
+      console.log('Cleaned blocks count:', cleanedMemoryData.blocks?.length || 0);
 
       let savedMemoryId: string;
       
@@ -1147,21 +1392,21 @@ function CreateMemoryPageContent() {
           skipTenantCheck: !isAdmin && isOwner,
           ownerUid: existingMemory?.ownerUid,
           currentUserUid: currentUser?.uid,
-          memoryDataKeys: Object.keys(memoryData),
+          memoryDataKeys: Object.keys(cleanedMemoryData),
         });
         try {
           console.log('=== Calling updateMemory ===');
-          console.log('memoryData.blocks:', memoryData.blocks);
-          console.log('memoryData.blocks type:', typeof memoryData.blocks);
-          console.log('memoryData.blocks is array:', Array.isArray(memoryData.blocks));
-          if (Array.isArray(memoryData.blocks)) {
-            console.log('memoryData.blocks count:', memoryData.blocks.length);
-            console.log('memoryData.blocks with URLs:', memoryData.blocks.filter((b: any) => b.url).map((b: any) => ({ id: b.id, type: b.type, url: b.url?.substring(0, 50) })));
+          console.log('cleanedMemoryData.blocks:', cleanedMemoryData.blocks);
+          console.log('cleanedMemoryData.blocks type:', typeof cleanedMemoryData.blocks);
+          console.log('cleanedMemoryData.blocks is array:', Array.isArray(cleanedMemoryData.blocks));
+          if (Array.isArray(cleanedMemoryData.blocks)) {
+            console.log('cleanedMemoryData.blocks count:', cleanedMemoryData.blocks.length);
+            console.log('cleanedMemoryData.blocks with URLs:', cleanedMemoryData.blocks.filter((b: any) => b.url).map((b: any) => ({ id: b.id, type: b.type, url: b.url?.substring(0, 50) })));
           }
-          console.log('memoryData keys:', Object.keys(memoryData));
-          console.log('memoryData.blocks before updateMemory:', JSON.stringify(memoryData.blocks).substring(0, 200));
+          console.log('cleanedMemoryData keys:', Object.keys(cleanedMemoryData));
+          console.log('cleanedMemoryData.blocks before updateMemory:', JSON.stringify(cleanedMemoryData.blocks).substring(0, 200));
           
-          await updateMemory(memoryId, memoryData, !isAdmin && isOwner);
+          await updateMemory(memoryId, cleanedMemoryData, !isAdmin && isOwner);
           console.log('Memory update successful');
           
           // 保存後にFirestoreから再取得して確認（少し待ってから）
@@ -1195,15 +1440,15 @@ function CreateMemoryPageContent() {
         // 新規作成
         console.log('=== Creating new memory ===');
         console.log('Memory creation details:', {
-          ownerUid: memoryData.ownerUid,
-          tenant: memoryData.tenant,
-          title: memoryData.title,
+          ownerUid: cleanedMemoryData.ownerUid,
+          tenant: cleanedMemoryData.tenant,
+          title: cleanedMemoryData.title,
           currentUserUid: currentUser?.uid,
           isAdmin,
         });
         try {
           const memoryRef = await addDoc(collection(db, 'memories'), {
-            ...memoryData,
+            ...cleanedMemoryData,
             status: 'draft',
             createdAt: new Date(),
           });
@@ -1323,6 +1568,9 @@ function CreateMemoryPageContent() {
               ownerUid: currentUser?.uid,
             });
             try {
+              console.log('Updating publicPage with gradientColor:', gradientColor);
+              console.log('Updating publicPage with topicsTitle:', topicsTitle);
+              console.log('Updating publicPage with messageTitle:', messageTitle);
               await updatePublicPage(publicPageId, {
                 memoryId: savedMemoryId,
                 title: title.trim(),
@@ -1332,6 +1580,7 @@ function CreateMemoryPageContent() {
                   accent: accentColor,
                   text: textColor,
                   background: backgroundColor,
+                  gradient: gradientColor || '#000000',
                 },
                 ...(Object.keys(mediaUpdate).length > 0 && { media: mediaUpdate }),
                 coverImagePosition: coverImagePosition,
@@ -1341,6 +1590,8 @@ function CreateMemoryPageContent() {
                   title: titleFontSize,
                   body: bodyFontSize,
                 },
+                topicsTitle: topicsTitle,
+                messageTitle: messageTitle,
                 ordering: mediaBlocks.map(block => block.id),
                 publish: {
                   status: 'published', // デモ用に即座に公開
@@ -1402,6 +1653,7 @@ function CreateMemoryPageContent() {
                   accent: accentColor,
                   text: textColor,
                   background: backgroundColor,
+                  gradient: gradientColor,
                 },
                 media: {
                   ...(coverImage && { cover: coverImage }),
@@ -1414,6 +1666,8 @@ function CreateMemoryPageContent() {
                   title: titleFontSize,
                   body: bodyFontSize,
                 },
+                topicsTitle: topicsTitle,
+                messageTitle: messageTitle,
                 ordering: mediaBlocks.map(block => block.id),
                 publish: {
                   status: 'published', // デモ用に即座に公開
@@ -1464,6 +1718,9 @@ function CreateMemoryPageContent() {
           ownerUid: currentUser?.uid,
         });
         try {
+          console.log('Updating existing publicPage with gradientColor:', gradientColor);
+          console.log('Updating existing publicPage with topicsTitle:', topicsTitle);
+          console.log('Updating existing publicPage with messageTitle:', messageTitle);
           await updatePublicPage(publicPageId, {
           memoryId: savedMemoryId, // memoryIdが空の場合に設定
           title: title.trim(),
@@ -1473,6 +1730,7 @@ function CreateMemoryPageContent() {
             accent: accentColor,
             text: textColor,
             background: backgroundColor,
+            gradient: gradientColor || '#000000',
           },
           ...(Object.keys(mediaUpdate).length > 0 && { media: mediaUpdate }),
           coverImagePosition: coverImagePosition,
@@ -1482,6 +1740,8 @@ function CreateMemoryPageContent() {
             title: titleFontSize,
             body: bodyFontSize,
           },
+          topicsTitle: topicsTitle,
+          messageTitle: messageTitle,
           ordering: mediaBlocks.map(block => block.id),
           publish: {
             status: 'published',
@@ -1533,17 +1793,23 @@ function CreateMemoryPageContent() {
         // 公開ページURLが決定した後にGmail送信をトリガー
         // claimRequestが存在し、まだURLが設定されていない場合にFunctions APIを呼び出す
         const claimRequestId = typeof window !== 'undefined' ? sessionStorage.getItem('currentClaimRequestId') : null;
+        
+        console.log('=== Email Notification Check ===');
+        console.log('claimRequestId:', claimRequestId);
+        console.log('claimRequest?.publicPageUrl:', claimRequest?.publicPageUrl);
+        console.log('claimRequest?.loginUrl:', claimRequest?.loginUrl);
+        console.log('shouldSendEmail:', claimRequestId && (!claimRequest?.publicPageUrl || !claimRequest?.loginUrl));
+        
         if (claimRequestId && (!claimRequest?.publicPageUrl || !claimRequest?.loginUrl)) {
           try {
             const publicPageUrl = generatePublicPageUrl(publicPageId, tenant);
             // ログインURLはトップページ（/）のみ（ログイン後は自動的に/memories/createにリダイレクトされる）
             const loginUrl = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : 'https://emolink-cms.web.app');
             
-            console.log('Sending URLs to Functions API for email notification:', {
-              requestId: claimRequestId,
-              publicPageUrl,
-              loginUrl,
-            });
+            console.log('=== Sending URLs to API for email notification ===');
+            console.log('requestId:', claimRequestId);
+            console.log('publicPageUrl:', publicPageUrl);
+            console.log('loginUrl:', loginUrl);
             
             // claimRequestからメールアドレスを取得
             const claimRequestData = await getClaimRequestById(claimRequestId, true);
@@ -1552,34 +1818,58 @@ function CreateMemoryPageContent() {
             // パスワードはsessionStorageから取得（パスワード設定時に保存）
             const loginPassword = typeof window !== 'undefined' ? sessionStorage.getItem('tempPassword') || '' : '';
             
-            // Firebase Functions APIを使用
-            const response = await fetch(
-              `https://asia-northeast1-memorylink-cms.cloudfunctions.net/claimSetUrls?requestId=${encodeURIComponent(claimRequestId)}`,
-              {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  publicPageId: publicPageId,
-                  publicPageUrl: publicPageUrl,
-                  loginUrl: loginUrl,
-                  loginEmail: loginEmail,
-                  loginPassword: loginPassword,
-                  claimedByUid: currentUser?.uid,
-                }),
-              }
-            );
+            console.log('Email:', loginEmail);
+            console.log('Password exists:', !!loginPassword);
+            
+            if (!loginEmail) {
+              console.error('❌ Email address not found in claimRequest');
+            }
+            if (!loginPassword) {
+              console.error('❌ Password not found in sessionStorage');
+            }
+            
+            // Next.js APIルート経由でメール送信（Firebase Functions APIの代わり）
+            const apiUrl = `/api/claim/${claimRequestId}/set-urls`;
+            console.log('Calling API:', apiUrl);
+            
+            const response = await fetch(apiUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                publicPageId: publicPageId,
+                publicPageUrl: publicPageUrl,
+                loginUrl: loginUrl,
+                loginEmail: loginEmail,
+                loginPassword: loginPassword,
+                claimedByUid: currentUser?.uid,
+              }),
+            });
             
             const result = await response.json();
             
+            console.log('API Response:', result);
+            
             if (!result.ok) {
-              console.error('Failed to set URLs for email notification:', result.error);
+              console.error('❌ Failed to set URLs for email notification:', result.error);
+              setError(`メール送信に失敗しました: ${result.error || '不明なエラー'}`);
             } else {
-              console.log('URLs set successfully for email notification:', {
+              console.log('✅ URLs set successfully for email notification:', {
                 publicPageUrl: result.publicPageUrl,
                 loginUrl: result.loginUrl,
+                emailSent: result.emailSent,
               });
+              
+              if (result.emailSent) {
+                setSuccessMessage('メールを送信しました！');
+              } else if (result.emailError) {
+                console.error('❌ Email sending error:', result.emailError);
+                setError(`メール送信に失敗しました: ${result.emailError}`);
+              } else {
+                console.warn('⚠️ Email not sent (email or password missing)');
+              }
+              
               // claimRequestを再取得して更新
               const updatedRequest = await getClaimRequestById(claimRequestId, true);
               if (updatedRequest) {
@@ -1587,13 +1877,24 @@ function CreateMemoryPageContent() {
               }
             }
           } catch (error: any) {
-            console.error('Error calling set-urls API for email notification:', error);
+            console.error('❌ Error calling set-urls API for email notification:', error);
+            console.error('Error details:', {
+              message: error.message,
+              stack: error.stack,
+            });
+            setError(`メール送信に失敗しました: ${error.message || '不明なエラー'}`);
             // エラーが発生しても保存処理は続行する
+          }
+        } else {
+          if (!claimRequestId) {
+            console.log('ℹ️ No claimRequestId found - email will not be sent (this is normal for direct page creation)');
+          } else {
+            console.log('ℹ️ URLs already set - email was already sent or will be sent by Firestore trigger');
           }
         }
       }
 
-        // プレビュー用にlocalStorageに保存
+      // プレビュー用にlocalStorageに保存
       // 保存処理完了後は、最新のmediaBlocksを使用
       // 念のため、保存時に使用したblocksToSaveを使用
       const previewData = {
@@ -1611,6 +1912,7 @@ function CreateMemoryPageContent() {
           accent: accentColor,
           text: textColor,
           background: backgroundColor,
+          gradient: gradientColor || '#000000',
         },
         fontSizes: {
           title: titleFontSize,
@@ -1634,23 +1936,55 @@ function CreateMemoryPageContent() {
               // memoryIdをstateに設定して、useEffectで既存のメモリを読み込む
               // ただし、保存処理が完了するまで待つ
               // useEffectの依存配列にmemoryIdが含まれているため、URLが更新されると自動的に読み込まれる
+      }
+
+      // 成功メッセージを表示
+      setError(null);
+      setSuccessMessage('保存が完了しました！');
+            
+            // 保存後にメモリを再取得してgradientColorを更新
+            if (memoryId) {
+              try {
+                // 少し待ってから再取得（Firestoreの更新が反映されるまで）
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                const updatedMemory = await getMemoryById(memoryId, !isAdmin && existingMemory?.ownerUid === currentUser?.uid);
+                console.log('Reloaded memory after save:', {
+                  hasMemory: !!updatedMemory,
+                  colors: updatedMemory?.colors,
+                  gradient: updatedMemory?.colors?.gradient,
+                });
+                if (updatedMemory) {
+                  // 色設定を更新
+                  if (updatedMemory.colors?.accent) setAccentColor(updatedMemory.colors.accent);
+                  if (updatedMemory.colors?.text) setTextColor(updatedMemory.colors.text);
+                  if (updatedMemory.colors?.background) setBackgroundColor(updatedMemory.colors.background);
+                  if (updatedMemory.colors?.gradient) {
+                    setGradientColor(updatedMemory.colors.gradient);
+                    console.log('Updated gradientColor after save:', updatedMemory.colors.gradient);
+                  }
+                  // フォントサイズを更新
+                  if (updatedMemory.fontSizes?.title) setTitleFontSize(updatedMemory.fontSizes.title);
+                  if (updatedMemory.fontSizes?.body) setBodyFontSize(updatedMemory.fontSizes.body);
+                  // タイトルを更新
+                  if (updatedMemory.topicsTitle) setTopicsTitle(updatedMemory.topicsTitle);
+                  if (updatedMemory.messageTitle) setMessageTitle(updatedMemory.messageTitle);
+                }
+              } catch (error) {
+                console.error('Failed to reload memory after save:', error);
+              }
             }
-
-            // 成功メッセージを表示
-            setError(null);
-            setSuccessMessage('保存が完了しました！');
-
-            // 3秒後に成功メッセージを消す
-            setTimeout(() => {
-              setSuccessMessage(null);
-            }, 3000);
-
-            // 管理者の場合はダッシュボードに、エンドユーザーの場合は同じページに留まる
-            if (isAdmin) {
-              setTimeout(() => {
-                router.push('/dashboard');
-              }, 2000);
-            }
+      
+      // 3秒後に成功メッセージを消す
+      setTimeout(() => {
+        setSuccessMessage(null);
+      }, 3000);
+      
+      // 管理者の場合はダッシュボードに、エンドユーザーの場合は同じページに留まる
+      if (isAdmin) {
+        setTimeout(() => {
+          router.push('/dashboard');
+        }, 2000);
+      }
     } catch (err: any) {
       console.error('Save error:', err);
       console.error('Save error details:', {
@@ -1876,13 +2210,27 @@ function CreateMemoryPageContent() {
     }
     
   // 既存のmemoryが存在しない場合（memoryIdが指定されているが、データが見つからない）
+  // 利用期限チェック
+  if (memoryId && existingMemory && isExpired(existingMemory)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#0f0f0f] text-white p-4">
+        <div className="bg-[#1a1a1a] rounded-2xl border border-white/10 p-6 max-w-md w-full text-center">
+          <p className="text-white font-medium mb-4">利用期限が切れています</p>
+          <p className="text-white/70 text-sm mb-6">
+            このemolinkの利用期限が切れています。延長するには、管理者にお問い合わせください。
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (memoryId && existingMemory === null && !existingMemoryLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0f0f0f] text-white p-4">
         <div className="bg-[#1a1a1a] rounded-2xl border border-white/10 p-6 max-w-md w-full text-center">
-          <p className="text-white font-medium mb-4">想い出ページが見つかりません</p>
+          <p className="text-white font-medium mb-4">emolinkが見つかりません</p>
           <p className="text-white/70 text-sm mb-6">
-            指定された想い出ページは存在しないか、アクセス権限がありません。
+            指定されたemolinkは存在しないか、アクセス権限がありません。
           </p>
                 <Button
             onClick={() => router.push('/memories/create')}
@@ -1892,159 +2240,17 @@ function CreateMemoryPageContent() {
                 </Button>
           </div>
         </div>
-      );
-  }
-
-  // 既存の想い出ページがある場合の選択画面（エンドユーザー向け、管理者は表示しない）
-  // memoryIdがある場合は既存メモリを編集するため、選択画面は表示しない
-  // 複数の想い出ページがある場合は、常に一覧を表示する
-  // memoryIdがある場合は、編集画面を表示するため一覧は表示しない
-  if (!isAdmin && existingMemories.length > 0 && !memoryId && !existingMemoryLoading) {
-    return (
-      <div className="min-h-screen bg-[#0f0f0f] text-white p-4 sm:p-6 md:p-8">
-        <div className="max-w-4xl mx-auto">
-          {successMessage && (
-            <div className="mb-4 bg-green-500/20 border border-green-500/30 text-green-400 p-3 rounded-lg text-center">
-              {successMessage}
-            </div>
-          )}
-          {error && (
-            <div className="mb-4 bg-red-500/20 border border-red-500/30 text-red-400 p-3 rounded-lg text-center">
-              {error}
-            </div>
-          )}
-          <div className="bg-[#1a1a1a] rounded-2xl border border-white/10 p-6 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-2xl font-bold text-white">emolink list</h2>
-            </div>
-            <p className="text-white/80 mb-6">
-              既に作成したemolinkがあります。編集するemolinkを選択してください。
-            </p>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {existingMemories.map((memory) => (
-                <div
-                  key={memory.id}
-                  className="bg-[#2a2a2a] rounded-xl border border-white/10 p-4 transition-all relative"
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = accentColor;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
-                  }}
-                >
-                  <div
-                    className="cursor-pointer"
-                    onClick={() => router.push(`/memories/create?memoryId=${memory.id}`)}
-                  >
-                    <div className="flex items-start space-x-3 mb-3">
-                      {/* プロフィール写真のサムネイル */}
-                      {memory.profileImage ? (
-                        <div className="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border border-white/10">
-                          <img
-                            src={memory.profileImage}
-                            alt={memory.title || '無題'}
-                            className="w-full h-full object-cover"
-                            style={{
-                              objectPosition: memory.profileImagePosition || 'center center',
-                              transform: `scale(${memory.profileImageScale || 1})`,
-                            }}
-                          />
-                        </div>
-                      ) : (
-                        <div className="flex-shrink-0 w-16 h-16 rounded-lg bg-[#1a1a1a] border border-white/10 flex items-center justify-center">
-                          <FileText className="w-8 h-8 text-white/40" />
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold text-white truncate mb-1">{memory.title || '無題'}</h3>
-                        <p className="text-white/60 text-sm">
-                          {memory.status === 'published' ? (
-                            <span style={{ color: accentColor }}>公開中</span>
-                          ) : (
-                            <span className="text-white/60">下書き</span>
-                          )}
-                        </p>
-                        <p className="text-white/40 text-xs mt-1">
-                          登録日: {formatDate(memory.createdAt)} • 最終更新: {formatDate(memory.updatedAt)}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <button 
-                        className="flex-1 py-2 px-4 bg-[#1a1a1a] border border-white/20 rounded-lg text-white hover:bg-[#2a2a2a] transition text-sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          router.push(`/memories/create?memoryId=${memory.id}`);
-                        }}
-                      >
-                        <Edit className="w-4 h-4 inline mr-2" />
-                        編集する
-                      </button>
-                      {/* 削除ボタン（開発中のみ有効、公開版では廃止予定） */}
-                      <button
-                        type="button"
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          console.log('Delete button clicked for memory:', memory.id);
-                          if (confirm(`「${memory.title || '無題'}」を削除してもよろしいですか？\nこの操作は取り消せません。`)) {
-                            try {
-                              setDeletingMemoryId(memory.id);
-                              setError(null);
-                              console.log('Calling deleteMemory...');
-                              // エンドユーザーは自分のmemoryであればテナント問わず削除可能
-                              const isOwner = memory.ownerUid === currentUser?.uid;
-                              await deleteMemory(memory.id, !isAdmin && isOwner);
-                              console.log('Delete successful, invalidating cache...');
-                              // React Queryのキャッシュを無効化
-                              queryClient.invalidateQueries({ queryKey: ['memories', currentUser?.uid] });
-                              setSuccessMessage('削除が完了しました');
-                              setTimeout(() => {
-                                setSuccessMessage(null);
-                              }, 3000);
-                            } catch (error: any) {
-                              console.error('Delete error:', error);
-                              setError(`削除に失敗しました: ${error.message}`);
-                              setTimeout(() => {
-                                setError(null);
-                              }, 5000);
-                            } finally {
-                              setDeletingMemoryId(null);
-                            }
-                          }
-                        }}
-                        disabled={deletingMemoryId === memory.id}
-                        className="py-2 px-4 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/50 rounded-lg transition disabled:opacity-50 text-sm"
-                        title="削除（開発中のみ有効）"
-                      >
-                        {deletingMemoryId === memory.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <>
-                            <Trash2 className="w-4 h-4 inline mr-2" />
-                            削除
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
     );
   }
+
 
   return (
     <div className="min-h-screen bg-[#0f0f0f] text-white">
       {/* 編集バナー */}
       {showEditBanner && (
-        <div className="bg-[#1a1a1a] border-b border-white/10 p-4 sm:p-6 flex items-center justify-between">
+        <div className="bg-[#1a1a1a] border-b border-white/10 p-2 sm:p-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-          <p className="text-white text-xs">edit</p>
+            <MemorySelector />
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -2072,12 +2278,14 @@ function CreateMemoryPageContent() {
                     accent: accentColor,
                     text: textColor,
                     background: backgroundColor,
+                    gradient: gradientColor,
                   },
                   fontSizes: {
                     title: titleFontSize,
                     body: bodyFontSize,
                   },
         topicsTitle: topicsTitle,
+        messageTitle: messageTitle,
                 };
                 localStorage.setItem('memory-preview', JSON.stringify(previewData));
                 window.open('/public/preview', '_blank');
@@ -2106,7 +2314,7 @@ function CreateMemoryPageContent() {
                 className="flex items-center justify-center w-10 h-10 bg-[#2a2a2a] text-white rounded-lg hover:bg-red-500/20 hover:border-red-500/50 border border-white/10 transition"
                 title="ログアウト"
               >
-                <LogOut className="w-5 h-5" />
+                <ExternalLink className="w-5 h-5" />
               </button>
             )}
           </div>
@@ -2116,7 +2324,7 @@ function CreateMemoryPageContent() {
       {/* 設定パネル */}
       {showColorSettings && (
         <div className="bg-[#1a1a1a] border-b border-white/10 p-4 sm:p-6">
-          <div className="max-w-2xl mx-auto space-y-4">
+          <div className="max-w-[calc(42rem*1.1025)] mx-auto space-y-4">
             <h3 className="text-white font-medium mb-3">設定</h3>
             
             {/* ストレージ使用量メーター */}
@@ -2198,6 +2406,25 @@ function CreateMemoryPageContent() {
                   />
                 </div>
               </div>
+              <div>
+                <label className="block text-white/80 text-sm mb-2">グラデーション色</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={gradientColor}
+                    onChange={(e) => setGradientColor(e.target.value)}
+                    className="w-12 h-10 rounded cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={gradientColor}
+                    onChange={(e) => setGradientColor(e.target.value)}
+                    className="flex-1 px-3 py-2 bg-[#2a2a2a] border border-white/20 rounded-lg text-white text-sm"
+                    placeholder="#000000"
+                  />
+                </div>
+                <p className="text-xs text-white/60 mt-1">サムネイル上のグラデーションの色を設定します</p>
+              </div>
             </div>
             <div className="mt-4 pt-4 border-t border-white/10">
               <h4 className="text-white font-medium mb-3">Topics設定</h4>
@@ -2209,6 +2436,19 @@ function CreateMemoryPageContent() {
                   onChange={(e) => setTopicsTitle(e.target.value)}
                   className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/20 rounded-lg text-white text-sm"
                   placeholder="Topics"
+                />
+              </div>
+            </div>
+            <div className="mt-4 pt-4 border-t border-white/10">
+              <h4 className="text-white font-medium mb-3">Message設定</h4>
+              <div>
+                <label className="block text-white/80 text-sm mb-2">Messageセクションのタイトル</label>
+                  <input
+                    type="text"
+                  value={messageTitle}
+                  onChange={(e) => setMessageTitle(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/20 rounded-lg text-white text-sm"
+                  placeholder="Message"
                 />
               </div>
             </div>
@@ -2239,268 +2479,131 @@ function CreateMemoryPageContent() {
                 </div>
               </div>
             </div>
+            
+            {/* 利用期限・ストレージ制限バナー */}
+            {existingMemory && currentUser && (
+              <div className="mt-4 pt-4 border-t border-white/10 space-y-3">
+                <MemoryExpirationBanner
+                  memory={existingMemory}
+                  userId={currentUser.uid}
+                  onExtended={(updatedMemory) => {
+                    // 延長後にMemoryを再取得して表示を更新
+                    refetchMemory();
+                  }}
+                />
+                <StorageLimitBanner
+                  memory={existingMemory}
+                  userId={currentUser.uid}
+                  onExtended={(updatedMemory) => {
+                    // 拡張後にMemoryを再取得して表示を更新
+                    refetchMemory();
+                  }}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}
       
       <div className="p-4 sm:p-6 md:p-8">
-        {/* 既存の想い出ページがある場合のヘッダー（エンドユーザー向け） */}
-      {/* LP経由（isFromClaim === true）の場合は既存メモリの表示を非表示 */}
-      {/* 現在編集中のメモリを除外 */}
-      {(() => {
-        const otherMemories = existingMemories.filter(m => m.id !== memoryId);
-        return !isAdmin && otherMemories.length > 0 && !isFromClaim && (
-          <div className="max-w-2xl mx-auto mb-4">
-            <div className="bg-[#1a1a1a] rounded-lg p-4 flex items-center justify-between border border-white/10">
-              <div className="flex items-center space-x-3">
-                <FileText className="w-5 h-5 text-white" />
-                <div>
-                  <p className="text-white font-medium">
-                    ほかにもemolinkが {otherMemories.length} 件あります
-                  </p>
-                <p className="text-white/80 text-sm">
-                  複数のLPから作成したページもすべて表示されます
-                </p>
-              </div>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowExistingMemories(!showExistingMemories)}
-              className="bg-[#2a2a2a] border-white/20 text-white hover:bg-[#2a2a2a]/80"
+        {/* 追加ボタンと保存ボタン（プロフィール画像の上に配置、横並び、位置を逆に） */}
+        <div className="max-w-[calc(42rem*1.1025)] mx-auto mb-4 mt-12 px-6 sm:px-8">
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                setShowUploadMenu(!showUploadMenu);
+                // コンテンツエリアの最下部までスクロール（アニメーション付き）
+                setTimeout(() => {
+                  const contentArea = document.querySelector('[data-content-area]') as HTMLElement | null;
+                  if (contentArea) {
+                    const rect = contentArea.getBoundingClientRect();
+                    const scrollTarget = window.scrollY + rect.bottom - window.innerHeight + 100;
+                    window.scrollTo({
+                      top: Math.max(0, scrollTarget),
+                      behavior: 'smooth'
+                    });
+                  }
+                }, 100);
+              }}
+              className="flex-1 font-medium py-2.5 rounded-xl transition text-sm border-2"
+              style={{ 
+                borderColor: accentColor,
+                color: accentColor,
+                backgroundColor: 'transparent',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = `${accentColor}20`;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
             >
-              {showExistingMemories ? '閉じる' : '一覧を見る'}
-            </Button>
+              <span className="flex items-center justify-center gap-2">
+                <Plus className="w-4 h-4" />
+                追加
+              </span>
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={loading || uploading}
+              className="flex-1 font-medium py-2.5 rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+              style={{ 
+                backgroundColor: accentColor, 
+                color: '#000000',
+              }}
+              onMouseEnter={(e) => {
+                if (!loading && !uploading) {
+                  e.currentTarget.style.opacity = '0.9';
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.opacity = loading || uploading ? '0.5' : '1';
+              }}
+            >
+              {loading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  保存中...
+                </span>
+              ) : (
+                '保存する'
+              )}
+            </button>
           </div>
         </div>
-        );
-      })()}
-      
-      {/* 既存ページ一覧（展開時） */}
-      {/* LP経由（isFromClaim === true）の場合は既存メモリの表示を非表示 */}
-      {/* 現在編集中のメモリを除外 */}
-      {(() => {
-        const otherMemories = existingMemories.filter(m => m.id !== memoryId);
-        return !isAdmin && otherMemories.length > 0 && showExistingMemories && !isFromClaim && (
-          <div className="max-w-2xl mx-auto mb-4">
-            <div className="bg-[#1a1a1a] rounded-2xl p-6 border border-white/10">
-              <h2 className="text-xl font-bold text-white mb-2">emolink list</h2>
-              <p className="text-white/80 text-sm mb-4">
-                編集するemolinkを選択してください
-              </p>
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {otherMemories.map((memory) => (
-                <div
-                  key={memory.id}
-                  className="flex items-center justify-between p-3 border border-white/10 rounded-lg hover:bg-[#2a2a2a] cursor-pointer transition-colors"
-                  onClick={() => router.push(`/memories/create?memoryId=${memory.id}`)}
-                >
-                  <div className="flex items-center space-x-3 flex-1 min-w-0">
-                    {/* プロフィール写真のサムネイル */}
-                    {memory.profileImage ? (
-                      <div className="flex-shrink-0 w-12 h-12 rounded-lg overflow-hidden border border-white/10">
-                        <img
-                          src={memory.profileImage}
-                          alt={memory.title || '無題'}
-                          className="w-full h-full object-cover"
-                          style={{
-                            objectPosition: memory.profileImagePosition || 'center center',
-                            transform: `scale(${memory.profileImageScale || 1})`,
-                          }}
-                        />
-                      </div>
-                    ) : (
-                      <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-[#1a1a1a] border border-white/10 flex items-center justify-center">
-                        <FileText className="w-6 h-6 text-white/40" />
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-white truncate">
-                      {memory.title || '無題'}
-                    </p>
-                    <p className="text-sm text-white/60">
-                      {memory.status === 'published' ? '公開中' : '下書き'}
-                    </p>
-                    <p className="text-xs text-white/40 mt-1">
-                      登録日: {formatDate(memory.createdAt)} • 最終更新: {formatDate(memory.updatedAt)}
-                    </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {memory.status === 'published' && memory.publicPageId && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-white hover:bg-[#2a2a2a]"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedMemoryForNfc({ id: memory.id, publicPageId: memory.publicPageId });
-                          setShowNfcUrlModal(true);
-                        }}
-                      >
-                        <ExternalLink className="w-4 h-4" />
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-white hover:bg-[#2a2a2a]"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        router.push(`/memories/create?memoryId=${memory.id}`);
-                      }}
-                    >
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    {/* 削除ボタン（開発中のみ有効、公開版では廃止予定） */}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-red-400 hover:bg-red-500/20"
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        console.log('Delete button clicked for memory:', memory.id);
-                        if (confirm(`「${memory.title || '無題'}」を削除してもよろしいですか？\nこの操作は取り消せません。`)) {
-                          try {
-                            setDeletingMemoryId(memory.id);
-                            setError(null);
-                            console.log('Calling deleteMemory...');
-                            // エンドユーザーは自分のmemoryであればテナント問わず削除可能
-                            const isOwner = memory.ownerUid === currentUser?.uid;
-                            await deleteMemory(memory.id, !isAdmin && isOwner);
-                            console.log('Delete successful, invalidating cache...');
-                            // React Queryのキャッシュを無効化
-                            queryClient.invalidateQueries({ queryKey: ['memories', currentUser?.uid] });
-                            setSuccessMessage('削除が完了しました');
-                            setTimeout(() => {
-                              setSuccessMessage(null);
-                            }, 3000);
-                          } catch (error: any) {
-                            console.error('Delete error:', error);
-                            setError(`削除に失敗しました: ${error.message}`);
-                            setTimeout(() => {
-                              setError(null);
-                            }, 5000);
-                          } finally {
-                            setDeletingMemoryId(null);
-                          }
-                        }
-                      }}
-                      disabled={deletingMemoryId === memory.id}
-                      title="削除（開発中のみ有効）"
-                    >
-                      {deletingMemoryId === memory.id ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="w-4 h-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })()}
-      
-      {/* プロフィールセクション */}
-      <div className="max-w-2xl mx-auto mb-6 px-6 sm:px-8">
+
+        {/* プロフィールセクション */}
+      <div className="max-w-[calc(42rem*1.1025)] mx-auto mb-6 px-6 sm:px-8">
         {/* プロフィール写真 */}
         <div className="mb-6 flex flex-col items-center">
           <label className="block text-white/80 text-sm mb-2">プロフィール写真</label>
-          <div className="relative w-16 h-16 rounded-full overflow-hidden border border-white/10">
-            {profileImage ? (
-              <>
-                <img 
-                  src={profileImage} 
-                  alt="プロフィール" 
-                  className="w-full h-full object-cover select-none touch-none"
-                  style={{ 
-                    objectPosition: profileImagePosition,
-                    transform: `scale(${profileImageScale})`,
-                    cursor: isDraggingProfile ? 'grabbing' : 'grab',
-                    userSelect: 'none',
-                    WebkitUserSelect: 'none',
-                    WebkitTouchCallout: 'none'
-                  }}
-                  onMouseDown={(e) => {
-                    // ボタンエリアでのドラッグ開始を防ぐ
-                    const target = e.target as HTMLElement;
-                    if (target.closest('button')) {
-                      return;
-                    }
-                    e.preventDefault();
-                    setIsDraggingProfile(true);
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const startX = e.clientX;
-                    const startY = e.clientY;
-                    // 現在のobjectPositionをパース（center centerの場合は50%として扱う）
-                    let posX = 50, posY = 50;
-                    if (profileImagePosition && profileImagePosition !== 'center center') {
-                      const parts = profileImagePosition.split(' ');
-                      posX = parseFloat(parts[0]) || 50;
-                      posY = parseFloat(parts[1]) || 50;
-                    }
-                    setDragStartPosProfile({
-                      x: startX,
-                      y: startY,
-                      posX: posX,
-                      posY: posY
-                    });
-                  }}
-                  onMouseMove={(e) => {
-                    if (isDraggingProfile && dragStartPosProfile) {
+          <div className="flex flex-col items-center gap-3">
+            <div className="relative w-40 h-40 rounded-full overflow-hidden border border-white/10">
+              {profileImage ? (
+                <>
+                  <img 
+                    src={profileImage} 
+                    alt="プロフィール" 
+                    className="w-full h-full object-cover select-none touch-none"
+                    style={{ 
+                      objectPosition: profileImagePosition,
+                      transform: `scale(${profileImageScale})`,
+                      cursor: isDraggingProfile ? 'grabbing' : 'grab',
+                      userSelect: 'none',
+                      WebkitUserSelect: 'none',
+                      WebkitTouchCallout: 'none'
+                    }}
+                    onMouseDown={(e) => {
+                      // ボタンエリアでのドラッグ開始を防ぐ
+                      const target = e.target as HTMLElement;
+                      if (target.closest('button')) {
+                        return;
+                      }
                       e.preventDefault();
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      // 移動量を計算（ピクセル単位）
-                      const deltaX = e.clientX - dragStartPosProfile.x;
-                      const deltaY = e.clientY - dragStartPosProfile.y;
-                      // 移動量をパーセンテージに変換（写真のサイズを考慮）
-                      const deltaXPercent = (deltaX / rect.width) * 100;
-                      const deltaYPercent = (deltaY / rect.height) * 100;
-                      // 新しい位置を計算（写真を動かす方向に反転）
-                      const newX = dragStartPosProfile.posX - deltaXPercent;
-                      const newY = dragStartPosProfile.posY - deltaYPercent;
-                      setProfileImagePosition(`${newX}% ${newY}%`);
-                    }
-                  }}
-                  onMouseUp={() => {
-                    setIsDraggingProfile(false);
-                    setDragStartPosProfile(null);
-                  }}
-                  onMouseLeave={() => {
-                    setIsDraggingProfile(false);
-                    setDragStartPosProfile(null);
-                  }}
-                  onTouchStart={(e) => {
-                    // ボタンエリアでのドラッグ開始を防ぐ
-                    const target = e.target as HTMLElement;
-                    if (target.closest('button')) {
-                      return;
-                    }
-                    e.preventDefault();
-                    
-                    // 2本の指でピンチジェスチャー
-                    if (e.touches.length === 2) {
-                      const touch1 = e.touches[0];
-                      const touch2 = e.touches[1];
-                      const distance = Math.hypot(
-                        touch2.clientX - touch1.clientX,
-                        touch2.clientY - touch1.clientY
-                      );
-                      setPinchStartProfile({
-                        distance: distance,
-                        scale: profileImageScale
-                      });
-                      setIsDraggingProfile(false);
-                      setDragStartPosProfile(null);
-                    } else if (e.touches.length === 1) {
-                      // 1本の指でドラッグ
                       setIsDraggingProfile(true);
-                      const touch = e.touches[0];
-                      const startX = touch.clientX;
-                      const startY = touch.clientY;
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const startX = e.clientX;
+                      const startY = e.clientY;
                       // 現在のobjectPositionをパース（center centerの場合は50%として扱う）
                       let posX = 50, posY = 50;
                       if (profileImagePosition && profileImagePosition !== 'center center') {
@@ -2514,57 +2617,142 @@ function CreateMemoryPageContent() {
                         posX: posX,
                         posY: posY
                       });
+                    }}
+                    onMouseMove={(e) => {
+                      if (isDraggingProfile && dragStartPosProfile) {
+                        e.preventDefault();
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        // 移動量を計算（ピクセル単位）
+                        const deltaX = e.clientX - dragStartPosProfile.x;
+                        const deltaY = e.clientY - dragStartPosProfile.y;
+                        // 移動量をパーセンテージに変換（写真のサイズを考慮）
+                        const deltaXPercent = (deltaX / rect.width) * 100;
+                        const deltaYPercent = (deltaY / rect.height) * 100;
+                        // 新しい位置を計算（写真を動かす方向に反転）
+                        const newX = dragStartPosProfile.posX - deltaXPercent;
+                        const newY = dragStartPosProfile.posY - deltaYPercent;
+                        setProfileImagePosition(`${newX}% ${newY}%`);
+                      }
+                    }}
+                    onMouseUp={() => {
+                      setIsDraggingProfile(false);
+                      setDragStartPosProfile(null);
+                    }}
+                    onMouseLeave={() => {
+                      setIsDraggingProfile(false);
+                      setDragStartPosProfile(null);
+                    }}
+                    onTouchStart={(e) => {
+                      // ボタンエリアでのドラッグ開始を防ぐ
+                      const target = e.target as HTMLElement;
+                      if (target.closest('button')) {
+                        return;
+                      }
+                      e.preventDefault();
+                      
+                      // 2本の指でピンチジェスチャー
+                      if (e.touches.length === 2) {
+                        const touch1 = e.touches[0];
+                        const touch2 = e.touches[1];
+                        const distance = Math.hypot(
+                          touch2.clientX - touch1.clientX,
+                          touch2.clientY - touch1.clientY
+                        );
+                        setPinchStartProfile({
+                          distance: distance,
+                          scale: profileImageScale
+                        });
+                        setIsDraggingProfile(false);
+                        setDragStartPosProfile(null);
+                      } else if (e.touches.length === 1) {
+                        // 1本の指でドラッグ
+                        setIsDraggingProfile(true);
+                        const touch = e.touches[0];
+                        const startX = touch.clientX;
+                        const startY = touch.clientY;
+                        // 現在のobjectPositionをパース（center centerの場合は50%として扱う）
+                        let posX = 50, posY = 50;
+                        if (profileImagePosition && profileImagePosition !== 'center center') {
+                          const parts = profileImagePosition.split(' ');
+                          posX = parseFloat(parts[0]) || 50;
+                          posY = parseFloat(parts[1]) || 50;
+                        }
+                        setDragStartPosProfile({
+                          x: startX,
+                          y: startY,
+                          posX: posX,
+                          posY: posY
+                        });
+                        setPinchStartProfile(null);
+                      }
+                    }}
+                    onTouchMove={(e) => {
+                      e.preventDefault();
+                      
+                      // 2本の指でピンチジェスチャー
+                      if (e.touches.length === 2 && pinchStartProfile) {
+                        const touch1 = e.touches[0];
+                        const touch2 = e.touches[1];
+                        const distance = Math.hypot(
+                          touch2.clientX - touch1.clientX,
+                          touch2.clientY - touch1.clientY
+                        );
+                        const scale = Math.max(0.5, Math.min(3, pinchStartProfile.scale * (distance / pinchStartProfile.distance)));
+                        setProfileImageScale(scale);
+                      } else if (e.touches.length === 1 && isDraggingProfile && dragStartPosProfile) {
+                        // 1本の指でドラッグ
+                        const touch = e.touches[0];
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        // 移動量を計算（ピクセル単位）
+                        const deltaX = touch.clientX - dragStartPosProfile.x;
+                        const deltaY = touch.clientY - dragStartPosProfile.y;
+                        // 移動量をパーセンテージに変換（写真のサイズを考慮）
+                        const deltaXPercent = (deltaX / rect.width) * 100;
+                        const deltaYPercent = (deltaY / rect.height) * 100;
+                        // 新しい位置を計算（写真を動かす方向に反転）
+                        const newX = dragStartPosProfile.posX - deltaXPercent;
+                        const newY = dragStartPosProfile.posY - deltaYPercent;
+                        setProfileImagePosition(`${newX}% ${newY}%`);
+                      }
+                    }}
+                    onTouchEnd={() => {
+                      setIsDraggingProfile(false);
+                      setDragStartPosProfile(null);
                       setPinchStartProfile(null);
-                    }
-                  }}
-                  onTouchMove={(e) => {
-                    e.preventDefault();
-                    
-                    // 2本の指でピンチジェスチャー
-                    if (e.touches.length === 2 && pinchStartProfile) {
-                      const touch1 = e.touches[0];
-                      const touch2 = e.touches[1];
-                      const distance = Math.hypot(
-                        touch2.clientX - touch1.clientX,
-                        touch2.clientY - touch1.clientY
-                      );
-                      const scale = Math.max(0.5, Math.min(3, pinchStartProfile.scale * (distance / pinchStartProfile.distance)));
-                      setProfileImageScale(scale);
-                    } else if (e.touches.length === 1 && isDraggingProfile && dragStartPosProfile) {
-                      // 1本の指でドラッグ
-                      const touch = e.touches[0];
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      // 移動量を計算（ピクセル単位）
-                      const deltaX = touch.clientX - dragStartPosProfile.x;
-                      const deltaY = touch.clientY - dragStartPosProfile.y;
-                      // 移動量をパーセンテージに変換（写真のサイズを考慮）
-                      const deltaXPercent = (deltaX / rect.width) * 100;
-                      const deltaYPercent = (deltaY / rect.height) * 100;
-                      // 新しい位置を計算（写真を動かす方向に反転）
-                      const newX = dragStartPosProfile.posX - deltaXPercent;
-                      const newY = dragStartPosProfile.posY - deltaYPercent;
-                      setProfileImagePosition(`${newX}% ${newY}%`);
-                    }
-                  }}
-                  onTouchEnd={() => {
-                    setIsDraggingProfile(false);
-                    setDragStartPosProfile(null);
-                    setPinchStartProfile(null);
-                  }}
-                  onTouchCancel={() => {
-                    setIsDraggingProfile(false);
-                    setDragStartPosProfile(null);
-                    setPinchStartProfile(null);
-                  }}
-                />
-                <div className="absolute top-2 right-2 flex gap-2">
+                    }}
+                    onTouchCancel={() => {
+                      setIsDraggingProfile(false);
+                      setDragStartPosProfile(null);
+                      setPinchStartProfile(null);
+                    }}
+                  />
+                </>
+              ) : (
+                <label className="w-full h-full bg-[#1a1a1a] flex flex-col items-center justify-center cursor-pointer hover:bg-[#2a2a2a] transition">
+                  <Camera className="w-12 h-12 text-white/50 mb-2" />
+                  <span className="text-white/60 text-sm">プロフィール写真を追加</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleProfileImageUpload(file);
+                    }}
+                    className="hidden"
+                  />
+                </label>
+              )}
+            </div>
+            {profileImage && (
+              <>
+                <div className="flex gap-2">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       setProfileImagePosition('center center');
                       setProfileImageScale(1);
                     }}
-                    className="bg-blue-500/80 hover:bg-blue-500 rounded-full p-2 transition text-white text-xs"
+                    className="bg-blue-500/80 hover:bg-blue-500 rounded-lg px-4 py-2 transition text-white text-sm"
                     title="中央にリセット"
                   >
                     中央
@@ -2576,77 +2764,74 @@ function CreateMemoryPageContent() {
                       setProfileImagePosition('center center');
                       setProfileImageScale(1);
                     }}
-                    className="bg-red-500/80 hover:bg-red-500 rounded-full p-2 transition"
+                    className="bg-red-500/80 hover:bg-red-500 rounded-lg px-4 py-2 transition text-white"
+                    title="削除"
                   >
-                    <X className="w-4 h-4 text-white" />
+                    <X className="w-4 h-4" />
                   </button>
                 </div>
-                <div className="absolute bottom-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded pointer-events-none">
+                <p className="text-white/60 text-xs text-center">
                   ドラッグして表示位置を調整
-                </div>
+                </p>
               </>
-            ) : (
-              <label className="w-full h-full bg-[#1a1a1a] flex flex-col items-center justify-center cursor-pointer hover:bg-[#2a2a2a] transition">
-                <Camera className="w-6 h-6 text-white/50 mb-1" />
-                <span className="text-white/60 text-xs">プロフィール写真を追加</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleProfileImageUpload(file);
-                  }}
-                  className="hidden"
-                />
-              </label>
             )}
           </div>
         </div>
-        
-        {/* タイトル */}
+              
+              {/* タイトル */}
         <div className="mb-6">
-          <label className="block text-white/80 text-sm mb-2">タイトル</label>
-          <textarea
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="タイトルを入力"
-            className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/20 rounded-lg text-white text-sm resize-none"
-            rows={2}
-            onInput={(e) => {
-              const target = e.currentTarget;
-              target.style.height = 'auto';
-              target.style.height = `${target.scrollHeight}px`;
-            }}
-          />
-        </div>
-        
-        {/* 説明文 */}
+                <label className="block text-white/80 text-sm mb-2">タイトル</label>
+                <textarea
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="タイトルを入力"
+                  className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/20 rounded-lg text-white text-sm resize-none overflow-hidden"
+                  rows={1}
+                  onInput={(e) => {
+                    const target = e.currentTarget;
+                    target.style.height = 'auto';
+                    target.style.height = `${target.scrollHeight}px`;
+                  }}
+                />
+              </div>
+              
+              {/* 説明文 */}
         <div className="mb-6">
-          <label className="block text-white/80 text-sm mb-2">説明文</label>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="説明文を入力"
-            className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/20 rounded-lg text-white text-sm resize-none"
-            rows={3}
-          />
-        </div>
-        
-        {/* プロフィール */}
+                <label className="block text-white/80 text-sm mb-2">説明文</label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="説明文を入力"
+                  className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/20 rounded-lg text-white text-sm resize-none overflow-hidden"
+                  rows={2}
+                  onInput={(e) => {
+                    const target = e.currentTarget;
+                    target.style.height = 'auto';
+                    target.style.height = `${target.scrollHeight}px`;
+                  }}
+                />
+              </div>
+              
+              {/* プロフィール */}
         <div className="mb-6">
-          <label className="block text-white/80 text-sm mb-2">プロフィール</label>
-          <textarea
-            value={bio}
-            onChange={(e) => setBio(e.target.value)}
-            placeholder="プロフィールを入力"
-            className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/20 rounded-lg text-white text-sm resize-none"
-            rows={3}
-          />
-        </div>
-      </div>
-
+                <label className="block text-white/80 text-sm mb-2">プロフィール</label>
+                <textarea
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                  placeholder="プロフィールを入力"
+                  className="w-full px-3 py-2 bg-[#2a2a2a] border border-white/20 rounded-lg text-white text-sm resize-none overflow-hidden"
+                  rows={2}
+                  onInput={(e) => {
+                    const target = e.currentTarget;
+                    target.style.height = 'auto';
+                    target.style.height = `${target.scrollHeight}px`;
+                  }}
+                />
+              </div>
+            </div>
+      
       {/* カバー画像 */}
-      <div className="max-w-2xl mx-auto mb-6 px-6 sm:px-8">
+      <div className="max-w-[calc(42rem*1.1025)] mx-auto mb-6 px-6 sm:px-8">
         <div className="mb-2">
           <p className="text-white/60 text-sm">📱 縦長の写真を推奨します（スマートフォン表示に最適化）</p>
         </div>
@@ -2845,22 +3030,78 @@ function CreateMemoryPageContent() {
       </div>
 
       {/* コンテンツエリア */}
-      <div className="max-w-2xl mx-auto px-6 sm:px-8">
+      <div className="max-w-[calc(42rem*1.1025)] mx-auto px-6 sm:px-8" data-content-area>
         {/* 要素を追加 */}
         <div className="space-y-4 mb-6">
-          {mediaBlocks.map((block) => (
+          {mediaBlocks.map((block, index) => (
             <div 
               key={block.id} 
-              className={`rounded-2xl p-4 ${
-                block.type === 'album' 
-                  ? 'border-4'
-                  : ''
+              className={`rounded-2xl p-4 transition-all relative ${
+                draggedBlockId === block.id ? 'opacity-50' : ''
+              } ${
+                dragOverBlockId === block.id ? 'ring-2 ring-offset-2' : ''
               }`}
               style={{
                 backgroundColor: editPageCardBackgroundColor,
-                ...(block.type === 'album' ? { borderColor: accentColor } : {})
+                ...(dragOverBlockId === block.id ? { 
+                  ringColor: accentColor,
+                  transform: 'translateY(-4px)',
+                  boxShadow: `0 4px 12px ${accentColor}40`
+                } : {})
+              }}
+              onDragOver={(e) => {
+                if (draggedBlockId) {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  if (draggedBlockId !== block.id) {
+                    setDragOverBlockId(block.id);
+                  }
+                }
+              }}
+              onDragLeave={() => {
+                setDragOverBlockId(null);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (draggedBlockId && draggedBlockId !== block.id) {
+                  const draggedIndex = mediaBlocks.findIndex(b => b.id === draggedBlockId);
+                  const dropIndex = mediaBlocks.findIndex(b => b.id === block.id);
+                  
+                  if (draggedIndex !== -1 && dropIndex !== -1) {
+                    const newBlocks = [...mediaBlocks];
+                    const [removed] = newBlocks.splice(draggedIndex, 1);
+                    newBlocks.splice(dropIndex, 0, removed);
+                    setMediaBlocks(newBlocks);
+                  }
+                }
+                setDraggedBlockId(null);
+                setDragOverBlockId(null);
               }}
             >
+              {/* ドラッグハンドル */}
+              <div
+                draggable
+                onDragStart={(e) => {
+                  setDraggedBlockId(block.id);
+                  e.dataTransfer.effectAllowed = 'move';
+                  e.dataTransfer.setData('text/plain', block.id);
+                  e.stopPropagation();
+                }}
+                onDragEnd={(e) => {
+                  e.stopPropagation();
+                  setDraggedBlockId(null);
+                  setDragOverBlockId(null);
+                }}
+                className="absolute top-2 right-2 flex items-center justify-center w-8 h-8 rounded cursor-move hover:bg-white/10 transition z-10"
+                style={{ touchAction: 'none' }}
+                title="ドラッグして順序を変更"
+              >
+                <div className="flex flex-col gap-1">
+                  <div className="w-4 h-0.5 bg-white/60"></div>
+                  <div className="w-4 h-0.5 bg-white/60"></div>
+                  <div className="w-4 h-0.5 bg-white/60"></div>
+                </div>
+              </div>
               {block.type === 'album' && block.albumItems ? (
                 // アルバム表示
                 <div className="space-y-3">
@@ -2980,6 +3221,69 @@ function CreateMemoryPageContent() {
               ) : block.type === 'text' ? (
                 // テキストブロック表示
                 <>
+                  {/* サムネイル画像（テキストブロック用） */}
+                  <div className="mb-3">
+                    <label className="block text-white/80 text-sm mb-2">サムネイル画像（任意）</label>
+                    {block.thumbnailUrl ? (
+                      <div className="relative aspect-video rounded-xl overflow-hidden border border-white/20">
+                        <img 
+                          src={block.thumbnailUrl} 
+                          alt="サムネイル" 
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          onClick={async () => {
+                            // サムネイル画像を削除
+                            handleUpdateBlock(block.id, 'thumbnailUrl', undefined);
+                            // ストレージ使用量から削除（正確なサイズは取得できないため、今回は削除のみ）
+                          }}
+                          className="absolute top-2 right-2 bg-red-500/80 hover:bg-red-500 text-white rounded-full p-1.5 transition"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="flex flex-col items-center justify-center w-full aspect-video border-2 border-dashed border-white/30 rounded-xl cursor-pointer hover:border-white/50 transition">
+                        <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                          <ImageIcon className="w-8 h-8 mb-2" style={{ color: accentColor }} />
+                          <p className="text-sm text-white/80">画像をアップロード</p>
+                        </div>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (file && currentUser?.uid) {
+                              try {
+                                setUploading(true);
+                                // ストレージ制限をチェック
+                                if (!checkStorageLimit(file.size)) {
+                                  setUploading(false);
+                                  return;
+                                }
+                                
+                                const storageRef = ref(storage, `memories/${currentUser.uid}/text_thumbnail_${Date.now()}_${file.name}`);
+                                const snapshot = await uploadBytes(storageRef, file);
+                                const downloadURL = await getDownloadURL(snapshot.ref);
+                                
+                                // ストレージ使用量を更新
+                                await updateStorageUsed(file.size);
+                                
+                                handleUpdateBlock(block.id, 'thumbnailUrl', downloadURL);
+                              } catch (err: any) {
+                                console.error('Upload error:', err);
+                                setError('アップロードに失敗しました');
+                              } finally {
+                                setUploading(false);
+                              }
+                            }
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+                  
                   {/* タイトル */}
                   <input
                     type="text"
@@ -3116,12 +3420,16 @@ function CreateMemoryPageContent() {
               )}
               
               <div className="flex items-center justify-between mt-3">
+                <div className="flex items-center gap-2">
+                  <ArrowUp className="w-4 h-4 text-white/40" />
                 <span className="text-xs text-white/60">
                   {block.type === 'image' ? '📷 写真' : block.type === 'video' ? '🎥 動画' : block.type === 'album' ? '📚 アルバム' : block.type === 'text' ? '📝 テキスト' : '🎵 音声'}
                 </span>
+                </div>
                 <button
                   onClick={() => handleDelete(block.id)}
                   className="h-8 w-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-red-500/20 transition"
+                  onMouseDown={(e) => e.stopPropagation()}
                 >
                   <Trash2 className="w-4 h-4 text-white" />
                 </button>
@@ -3129,25 +3437,57 @@ function CreateMemoryPageContent() {
             </div>
           ))}
 
-          {/* 追加ボタン */}
-          <button
-            onClick={() => setShowUploadMenu(!showUploadMenu)}
-            className="w-full bg-[#1a1a1a] rounded-2xl p-8 border-2 border-dashed border-white/30 transition-all group"
-            style={{ 
-              '--hover-border-color': accentColor,
-            } as React.CSSProperties}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = accentColor;
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
-            }}
-          >
-            <div className="text-center">
-              <Plus className="w-12 h-12 mx-auto mb-2" style={{ color: accentColor }} />
-              <p className="font-medium text-sm" style={{ color: accentColor }}>要素を追加</p>
-            </div>
-          </button>
+          {/* 追加ボタンと保存ボタン（最下部、横並び） */}
+          <div className="flex gap-3 mt-6">
+            <button
+              onClick={() => setShowUploadMenu(!showUploadMenu)}
+              className="flex-1 font-medium py-2.5 rounded-xl transition text-sm border-2"
+              style={{ 
+                borderColor: 'rgba(255, 255, 255, 0.3)',
+                backgroundColor: 'transparent',
+                color: accentColor,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = accentColor;
+                e.currentTarget.style.backgroundColor = `${accentColor}20`;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              <span className="flex items-center justify-center gap-2">
+                <Plus className="w-4 h-4" />
+                追加
+              </span>
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={loading || uploading}
+              className="flex-1 font-medium py-2.5 rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+              style={{ 
+                backgroundColor: accentColor, 
+                color: '#000000',
+              }}
+              onMouseEnter={(e) => {
+                if (!loading && !uploading) {
+                  e.currentTarget.style.opacity = '0.9';
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.opacity = loading || uploading ? '0.5' : '1';
+              }}
+            >
+              {loading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  保存中...
+                </span>
+              ) : (
+                '保存する'
+              )}
+            </button>
+          </div>
         </div>
 
         {/* エラーメッセージ */}
@@ -3164,39 +3504,13 @@ function CreateMemoryPageContent() {
           </div>
         )}
 
-        {/* 保存ボタン */}
-        <div className="pb-8">
-          <button
-            onClick={handleSave}
-            disabled={loading || uploading}
-            className="w-full font-semibold py-4 rounded-2xl transition disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ 
-              backgroundColor: accentColor, 
-              color: '#000000',
-            }}
-            onMouseEnter={(e) => {
-              if (!loading && !uploading) {
-                e.currentTarget.style.opacity = '0.9';
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.opacity = loading || uploading ? '0.5' : '1';
-            }}
-          >
-            {loading ? (
-              <span className="flex items-center justify-center gap-2">
-                <Loader2 className="w-5 h-5 animate-spin" />
-                保存中...
-              </span>
-            ) : (
-              '保存する'
-            )}
-          </button>
-        </div>
 
         {/* URL情報表示 */}
         <div className="mt-8 pt-8 border-t border-white/10 pb-8">
-          <h3 className="text-white font-medium mb-4 text-sm">アクセス情報</h3>
+          {/* 広告バナー（アクセス情報の上） */}
+          <TenantAdvertisement tenantId={existingMemory?.tenant || getCurrentTenant()} />
+          
+          <h3 className="text-white font-medium mb-4 text-sm mt-12">アクセス情報</h3>
           
           {/* ログインURL */}
           <div className="mb-4">
@@ -3261,9 +3575,9 @@ function CreateMemoryPageContent() {
                     const url = claimRequest?.publicPageUrl || 
                       (currentPublicPageId || existingMemory?.publicPageId ? generatePublicPageUrl(currentPublicPageId || existingMemory?.publicPageId || '', getCurrentTenant()) : '');
                     if (url) {
-                      navigator.clipboard.writeText(url);
-                      setSuccessMessage('公開ページURLをクリップボードにコピーしました');
-                      setTimeout(() => setSuccessMessage(null), 2000);
+                    navigator.clipboard.writeText(url);
+                    setSuccessMessage('公開ページURLをクリップボードにコピーしました');
+                    setTimeout(() => setSuccessMessage(null), 2000);
                     } else {
                       setError('公開ページURLが取得できませんでした');
                     }
@@ -3280,12 +3594,12 @@ function CreateMemoryPageContent() {
                     const url = claimRequest?.publicPageUrl || 
                       (currentPublicPageId || existingMemory?.publicPageId ? generatePublicPageUrl(currentPublicPageId || existingMemory?.publicPageId || '', getCurrentTenant()) : '');
                     if (url) {
-                      window.open(url, '_blank');
+                    window.open(url, '_blank');
                     } else {
                       setError('公開ページURLが取得できませんでした');
                     }
                   }}
-                  className="shrink-0 border-white/20 text-white hover:bg-white/10"
+                  className="shrink-0 bg-[#2a2a2a] border-white/20 text-white hover:bg-[#3a3a3a]"
                 >
                   開く
                 </Button>
@@ -3474,7 +3788,7 @@ function CreateMemoryPageContent() {
 export default function CreateMemoryPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-600 to-cyan-600">
+      <div className="min-h-screen flex items-center justify-center bg-[#0f0f0f]">
         <Loader2 className="w-12 h-12 animate-spin text-white" />
       </div>
     }>
