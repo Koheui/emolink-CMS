@@ -12,7 +12,7 @@ git add src/app/api/upload/
 git add src/lib/storage.ts
 git add package.json
 git add env.example
-git add docs/MIGRATION_TO_VERCEL_R2.md
+git add docs/migration/MIGRATION_TO_VERCEL_R2.md
 git add src/app/memories/create/page.tsx
 git add src/components/tenant-advertisement.tsx
 
