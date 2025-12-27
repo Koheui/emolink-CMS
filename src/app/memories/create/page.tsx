@@ -421,10 +421,11 @@ function CreateMemoryPageContent() {
       console.log('MediaBlocks with URLs:', mediaBlocks.filter(b => b.url).map(b => ({ id: b.id, type: b.type, hasUrl: !!b.url, url: b.url?.substring(0, 50) })));
       
       // orderingフィールドがある場合、それに従ってソート
-      if ((existingMemory as any).ordering && Array.isArray((existingMemory as any).ordering)) {
+      const ordering = (existingMemory as any).ordering;
+      if (ordering && Array.isArray(ordering)) {
         console.log('=== Applying ordering ===');
-        console.log('Ordering array:', existingMemory.ordering);
-        const orderMap = new Map((existingMemory as any).ordering.map((id: string, index: number) => [id, index]));
+        console.log('Ordering array:', ordering);
+        const orderMap = new Map(ordering.map((id: string, index: number) => [id, index]));
         mediaBlocks = mediaBlocks.sort((a, b) => {
           const orderA = orderMap.get(a.id) ?? 999999;
           const orderB = orderMap.get(b.id) ?? 999999;
