@@ -11,6 +11,7 @@ import { Loader2, Plus, Camera, Video as VideoIcon, Music, Image as ImageIcon, T
 import { collection, addDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage, auth } from '@/lib/firebase';
+import { uploadFile, uploadImage, uploadVideo, uploadAudio } from '@/lib/storage';
 import { useMemories, useMemory } from '@/hooks/use-memories';
 import { useQueryClient } from '@tanstack/react-query';
 import { formatDate, generatePublicPageUrl, generateNfcUrl } from '@/lib/utils';
@@ -411,13 +412,26 @@ function CreateMemoryPageContent() {
         console.log('Blocks with URLs:', blocks.filter((b: any) => b.url).map((b: any) => ({ id: b.id, type: b.type, hasUrl: !!b.url, url: b.url?.substring(0, 50) })));
       }
       
-      const mediaBlocks = blocks.filter((block: any) => 
+      let mediaBlocks = blocks.filter((block: any) => 
         block.type !== 'link' && ['image', 'video', 'audio', 'album', 'text'].includes(block.type)
       ) as MediaBlock[];
       
       console.log('Filtered mediaBlocks:', mediaBlocks);
       console.log('Filtered mediaBlocks count:', mediaBlocks.length);
       console.log('MediaBlocks with URLs:', mediaBlocks.filter(b => b.url).map(b => ({ id: b.id, type: b.type, hasUrl: !!b.url, url: b.url?.substring(0, 50) })));
+      
+      // orderingフィールドがある場合、それに従ってソート
+      if (existingMemory.ordering && Array.isArray(existingMemory.ordering)) {
+        console.log('=== Applying ordering ===');
+        console.log('Ordering array:', existingMemory.ordering);
+        const orderMap = new Map(existingMemory.ordering.map((id, index) => [id, index]));
+        mediaBlocks = mediaBlocks.sort((a, b) => {
+          const orderA = orderMap.get(a.id) ?? 999999;
+          const orderB = orderMap.get(b.id) ?? 999999;
+          return orderA - orderB;
+        });
+        console.log('Sorted mediaBlocks by ordering:', mediaBlocks.map(b => b.id));
+      }
       
       // 保存処理中でない場合のみ、mediaBlocksを更新
       console.log('Setting mediaBlocks', { loading, mediaBlocksCount: mediaBlocks.length });
@@ -920,18 +934,16 @@ function CreateMemoryPageContent() {
         return;
       }
       
-      console.log('Uploading to Firebase Storage...');
+      console.log('Uploading file...');
       const storagePath = `memories/${currentUser.uid}/${Date.now()}_${file.name}`;
       console.log('Storage path:', storagePath);
-      const storageRef = ref(storage, storagePath);
-      console.log('Storage ref path:', storageRef.fullPath);
-      console.log('Storage bucket:', storageRef.bucket);
       
-      const snapshot = await uploadBytes(storageRef, file);
-      console.log('Upload complete, getting download URL...');
-      console.log('Upload snapshot:', { bytesTransferred: snapshot.metadata.size, totalBytes: snapshot.metadata.size });
+      // storage.tsのuploadFile関数を使用（R2/Firebase Storageを自動切り替え）
+      const uploadResult = await uploadFile(file, storagePath, (progress) => {
+        console.log('Upload progress:', progress);
+      });
       
-      const downloadURL = await getDownloadURL(snapshot.ref);
+      const downloadURL = uploadResult.url;
       console.log('Download URL obtained:', downloadURL?.substring(0, 100));
       
       // ストレージ使用量を更新
@@ -945,11 +957,11 @@ function CreateMemoryPageContent() {
           const thumbnailBlob = await generateVideoThumbnail(file);
           console.log('Thumbnail generated, uploading to Firebase Storage...');
           
-          // サムネイルをFirebase Storageにアップロード
+          // サムネイルをストレージにアップロード（R2/Firebase Storageを自動切り替え）
           const thumbnailPath = `memories/${currentUser.uid}/${Date.now()}_${file.name}_thumbnail.jpg`;
-          const thumbnailRef = ref(storage, thumbnailPath);
-          await uploadBytes(thumbnailRef, thumbnailBlob);
-          thumbnailUrl = await getDownloadURL(thumbnailRef);
+          const thumbnailFile = new File([thumbnailBlob], 'thumbnail.jpg', { type: 'image/jpeg' });
+          const thumbnailResult = await uploadFile(thumbnailFile, thumbnailPath);
+          thumbnailUrl = thumbnailResult.url;
           
           // サムネイルのストレージ使用量も更新
           await updateStorageUsed(thumbnailBlob.size);
@@ -1371,6 +1383,11 @@ function CreateMemoryPageContent() {
       }
       if (topicsTitle) memoryData.topicsTitle = topicsTitle;
       if (messageTitle) memoryData.messageTitle = messageTitle;
+      
+      // orderingを追加（最新の状態をrefから取得）
+      memoryData.ordering = latestMediaBlocks.map(block => block.id);
+      console.log('[Save] Ordering being saved:', memoryData.ordering);
+      console.log('[Save] Block order:', latestMediaBlocks.map(b => ({ id: b.id, type: b.type })));
 
       // memoryDataからundefinedの値を完全に除外
       const cleanedMemoryData = removeUndefined(memoryData);
@@ -1378,6 +1395,8 @@ function CreateMemoryPageContent() {
       console.log('=== Cleaned memory data ===');
       console.log('Cleaned memoryData keys:', Object.keys(cleanedMemoryData));
       console.log('Cleaned blocks count:', cleanedMemoryData.blocks?.length || 0);
+      console.log('Cleaned ordering:', cleanedMemoryData.ordering);
+      console.log('Cleaned ordering length:', cleanedMemoryData.ordering?.length || 0);
 
       let savedMemoryId: string;
       
@@ -1592,7 +1611,7 @@ function CreateMemoryPageContent() {
                 },
                 topicsTitle: topicsTitle,
                 messageTitle: messageTitle,
-                ordering: mediaBlocks.map(block => block.id),
+                ordering: latestMediaBlocks.map(block => block.id),
                 publish: {
                   status: 'published', // デモ用に即座に公開
                   version: 1,
@@ -1668,7 +1687,7 @@ function CreateMemoryPageContent() {
                 },
                 topicsTitle: topicsTitle,
                 messageTitle: messageTitle,
-                ordering: mediaBlocks.map(block => block.id),
+                ordering: latestMediaBlocks.map(block => block.id),
                 publish: {
                   status: 'published', // デモ用に即座に公開
                   version: 1,
@@ -1705,10 +1724,16 @@ function CreateMemoryPageContent() {
       } else {
         // 既存の公開ページを更新
         console.log('Updating existing publicPage:', publicPageId);
-        // mediaオブジェクトを構築（undefinedをnullに変換）
-        const mediaUpdate: any = {};
-        if (coverImage) mediaUpdate.cover = coverImage;
-        if (profileImage) mediaUpdate.profile = profileImage;
+        
+        // 既存のpublicPageデータを取得
+        const existingPublicPageDoc = await getDoc(doc(db, 'publicPages', publicPageId));
+        const existingPublicPageData = existingPublicPageDoc.exists() ? existingPublicPageDoc.data() : {};
+        
+        // mediaオブジェクトを構築（既存のデータを保持しつつ、新しいデータで上書き）
+        const mediaUpdate: any = {
+          cover: coverImage || existingPublicPageData.media?.cover || undefined,
+          profile: profileImage || existingPublicPageData.media?.profile || undefined,
+        };
         
         console.log('=== Updating publicPage ===');
         console.log('PublicPage update details:', {
@@ -1716,6 +1741,9 @@ function CreateMemoryPageContent() {
           isAdmin,
           skipTenantCheck: !isAdmin,
           ownerUid: currentUser?.uid,
+          existingCoverImage: existingPublicPageData.media?.cover,
+          newCoverImage: coverImage,
+          finalCoverImage: mediaUpdate.cover,
         });
         try {
           console.log('Updating existing publicPage with gradientColor:', gradientColor);
@@ -1732,8 +1760,9 @@ function CreateMemoryPageContent() {
             background: backgroundColor,
             gradient: gradientColor || '#000000',
           },
-          ...(Object.keys(mediaUpdate).length > 0 && { media: mediaUpdate }),
+          media: mediaUpdate,
           coverImagePosition: coverImagePosition,
+          coverImageScale: coverImageScale,
           profileImagePosition: profileImagePosition,
           profileImageScale: profileImageScale,
           fontSizes: {
@@ -1742,7 +1771,7 @@ function CreateMemoryPageContent() {
           },
           topicsTitle: topicsTitle,
           messageTitle: messageTitle,
-          ordering: mediaBlocks.map(block => block.id),
+          ordering: latestMediaBlocks.map(block => block.id),
           publish: {
             status: 'published',
             version: (existingMemory as any)?.publish?.version ? (existingMemory as any).publish.version + 1 : 1,
@@ -1918,6 +1947,9 @@ function CreateMemoryPageContent() {
           title: titleFontSize,
           body: bodyFontSize,
         },
+        topicsTitle: topicsTitle,
+        messageTitle: messageTitle,
+        ordering: latestMediaBlocks.map(block => block.id),
       };
       localStorage.setItem('memory-preview', JSON.stringify(previewData));
 
@@ -2262,7 +2294,8 @@ function CreateMemoryPageContent() {
             </button>
             <button
               onClick={() => {
-                // プレビュー用にlocalStorageに保存
+                // プレビュー用にlocalStorageに保存（最新の状態をrefから取得）
+                const latestBlocks = mediaBlocksRef.current;
                 const previewData = {
                   title,
                   description,
@@ -2273,7 +2306,7 @@ function CreateMemoryPageContent() {
                   coverImage,
                   coverImagePosition,
                   coverImageScale,
-                  blocks: mediaBlocks,
+                  blocks: latestBlocks,
                   colors: {
                     accent: accentColor,
                     text: textColor,
@@ -2284,8 +2317,9 @@ function CreateMemoryPageContent() {
                     title: titleFontSize,
                     body: bodyFontSize,
                   },
-        topicsTitle: topicsTitle,
-        messageTitle: messageTitle,
+                  topicsTitle: topicsTitle,
+                  messageTitle: messageTitle,
+                  ordering: latestBlocks.map(block => block.id),
                 };
                 localStorage.setItem('memory-preview', JSON.stringify(previewData));
                 window.open('/public/preview', '_blank');
@@ -3058,11 +3092,15 @@ function CreateMemoryPageContent() {
                   }
                 }
               }}
-              onDragLeave={() => {
-                setDragOverBlockId(null);
+              onDragLeave={(e) => {
+                // 子要素へのドラッグでクリアしないように、実際に要素を離れた時のみクリア
+                if (e.currentTarget === e.target) {
+                  setDragOverBlockId(null);
+                }
               }}
               onDrop={(e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 if (draggedBlockId && draggedBlockId !== block.id) {
                   const draggedIndex = mediaBlocks.findIndex(b => b.id === draggedBlockId);
                   const dropIndex = mediaBlocks.findIndex(b => b.id === block.id);
@@ -3071,7 +3109,15 @@ function CreateMemoryPageContent() {
                     const newBlocks = [...mediaBlocks];
                     const [removed] = newBlocks.splice(draggedIndex, 1);
                     newBlocks.splice(dropIndex, 0, removed);
+                    console.log('[Ordering] Block moved:', {
+                      draggedId: draggedBlockId,
+                      draggedIndex,
+                      dropIndex,
+                      newOrder: newBlocks.map(b => ({ id: b.id, type: b.type }))
+                    });
                     setMediaBlocks(newBlocks);
+                    // refも同時に更新（保存時に最新の状態を使うため）
+                    mediaBlocksRef.current = newBlocks;
                   }
                 }
                 setDraggedBlockId(null);
@@ -3085,21 +3131,19 @@ function CreateMemoryPageContent() {
                   setDraggedBlockId(block.id);
                   e.dataTransfer.effectAllowed = 'move';
                   e.dataTransfer.setData('text/plain', block.id);
-                  e.stopPropagation();
                 }}
-                onDragEnd={(e) => {
-                  e.stopPropagation();
+                onDragEnd={() => {
                   setDraggedBlockId(null);
                   setDragOverBlockId(null);
                 }}
-                className="absolute top-2 right-2 flex items-center justify-center w-8 h-8 rounded cursor-move hover:bg-white/10 transition z-10"
+                className="absolute top-2 right-2 flex items-center justify-center w-10 h-10 rounded cursor-move hover:bg-white/10 transition z-50"
                 style={{ touchAction: 'none' }}
                 title="ドラッグして順序を変更"
               >
                 <div className="flex flex-col gap-1">
-                  <div className="w-4 h-0.5 bg-white/60"></div>
-                  <div className="w-4 h-0.5 bg-white/60"></div>
-                  <div className="w-4 h-0.5 bg-white/60"></div>
+                  <div className="w-5 h-0.5 bg-white/70"></div>
+                  <div className="w-5 h-0.5 bg-white/70"></div>
+                  <div className="w-5 h-0.5 bg-white/70"></div>
                 </div>
               </div>
               {block.type === 'album' && block.albumItems ? (
@@ -3113,12 +3157,6 @@ function CreateMemoryPageContent() {
                       placeholder="アルバムタイトルを入力"
                       className="text-xl font-bold text-white bg-transparent border-none focus:outline-none focus:ring-0 placeholder:text-white/40 flex-1"
                     />
-                    <button 
-                      onClick={() => handleDelete(block.id)}
-                      className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-red-500/20 transition"
-                    >
-                      <Trash2 className="w-4 h-4 text-white" />
-                    </button>
                   </div>
                   <textarea
                     placeholder="アルバムの説明を入力（任意）"
@@ -3216,6 +3254,16 @@ function CreateMemoryPageContent() {
                     >
                       Topicsに表示
                     </label>
+                  </div>
+                  {/* ゴミ箱ボタン（アルバムブロック下部） */}
+                  <div className="flex justify-center mt-4 pt-4 border-t border-white/10">
+                    <button 
+                      onClick={() => handleDelete(block.id)}
+                      className="px-4 py-2 rounded-lg bg-white/10 hover:bg-red-500/20 transition flex items-center gap-2"
+                    >
+                      <Trash2 className="w-4 h-4 text-white" />
+                      <span className="text-white text-sm">削除</span>
+                    </button>
                   </div>
                 </div>
               ) : block.type === 'text' ? (
@@ -3337,6 +3385,17 @@ function CreateMemoryPageContent() {
                       Topicsに表示
                     </label>
                   </div>
+                  
+                  {/* ゴミ箱ボタン（テキストブロック下部） */}
+                  <div className="flex justify-center mt-4 pt-4 border-t border-white/10">
+                    <button 
+                      onClick={() => handleDelete(block.id)}
+                      className="px-4 py-2 rounded-lg bg-white/10 hover:bg-red-500/20 transition flex items-center gap-2"
+                    >
+                      <Trash2 className="w-4 h-4 text-white" />
+                      <span className="text-white text-sm">削除</span>
+                    </button>
+                  </div>
                 </>
               ) : (
                 // 通常のメディア表示
@@ -3419,21 +3478,27 @@ function CreateMemoryPageContent() {
                 </>
               )}
               
-              <div className="flex items-center justify-between mt-3">
-                <div className="flex items-center gap-2">
-                  <ArrowUp className="w-4 h-4 text-white/40" />
+              {/* ブロックタイプ表示 */}
+              <div className="flex items-center gap-2 mt-3">
+                <ArrowUp className="w-4 h-4 text-white/40" />
                 <span className="text-xs text-white/60">
                   {block.type === 'image' ? '📷 写真' : block.type === 'video' ? '🎥 動画' : block.type === 'album' ? '📚 アルバム' : block.type === 'text' ? '📝 テキスト' : '🎵 音声'}
                 </span>
-                </div>
-                <button
-                  onClick={() => handleDelete(block.id)}
-                  className="h-8 w-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-red-500/20 transition"
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  <Trash2 className="w-4 h-4 text-white" />
-                </button>
               </div>
+              
+              {/* ゴミ箱ボタン（ブロック下部） - アルバムとテキストブロック以外 */}
+              {block.type !== 'album' && block.type !== 'text' && (
+                <div className="flex justify-center mt-4 pt-4 border-t border-white/10">
+                  <button
+                    onClick={() => handleDelete(block.id)}
+                    className="px-4 py-2 rounded-lg bg-white/10 hover:bg-red-500/20 transition flex items-center gap-2"
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
+                    <Trash2 className="w-4 h-4 text-white" />
+                    <span className="text-white text-sm">削除</span>
+                  </button>
+                </div>
+              )}
             </div>
           ))}
 
@@ -3545,17 +3610,18 @@ function CreateMemoryPageContent() {
           {/* 公開ページURL */}
           {(() => {
             const hasPublicPageUrl = !!(claimRequest?.publicPageUrl || currentPublicPageId || existingMemory?.publicPageId);
-            if (typeof window !== 'undefined') {
-              console.log('🔍 Public page URL display check:', {
-                hasClaimRequestUrl: !!claimRequest?.publicPageUrl,
-                claimRequestUrl: claimRequest?.publicPageUrl,
-                hasCurrentPublicPageId: !!currentPublicPageId,
-                currentPublicPageId: currentPublicPageId,
-                hasExistingMemoryPublicPageId: !!existingMemory?.publicPageId,
-                existingMemoryPublicPageId: existingMemory?.publicPageId,
-                willDisplay: hasPublicPageUrl,
-              });
-            }
+            // デバッグログを削除（必要に応じて開発環境のみ出力）
+            // if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+            //   console.log('🔍 Public page URL display check:', {
+            //     hasClaimRequestUrl: !!claimRequest?.publicPageUrl,
+            //     claimRequestUrl: claimRequest?.publicPageUrl,
+            //     hasCurrentPublicPageId: !!currentPublicPageId,
+            //     currentPublicPageId: currentPublicPageId,
+            //     hasExistingMemoryPublicPageId: !!existingMemory?.publicPageId,
+            //     existingMemoryPublicPageId: existingMemory?.publicPageId,
+            //     willDisplay: hasPublicPageUrl,
+            //   });
+            // }
             return hasPublicPageUrl;
           })() ? (
             <div className="mb-4">

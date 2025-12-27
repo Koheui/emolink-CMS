@@ -201,11 +201,14 @@ export function TenantAdvertisement({
   const imageUrl = banner.imageUrl || banner.ogpImage;
   const title = banner.ogpTitle || '店舗広告バナー';
 
-  console.log('Banner display state:', {
-    imageUrl,
-    linkUrl: banner.linkUrl,
-    title,
-  });
+  // デバッグログを削除（必要に応じて開発環境のみ出力）
+  // if (process.env.NODE_ENV === 'development') {
+  //   console.log('Banner display state:', {
+  //     imageUrl,
+  //     linkUrl: banner.linkUrl,
+  //     title,
+  //   });
+  // }
 
   // 画像もリンクURLもない場合は表示しない
   if (!imageUrl && !banner.linkUrl) {

@@ -7,6 +7,23 @@ import {
   getMetadata
 } from 'firebase/storage';
 import { storage } from './firebase';
+import {
+  uploadImageToR2,
+  uploadVideoToR2,
+  uploadAudioToR2,
+  uploadFileToR2,
+  deleteFileFromR2,
+  listFilesFromR2,
+  getFileSizeFromR2,
+} from './r2-storage';
+
+// ストレージプロバイダーの選択（環境変数で切り替え）
+const STORAGE_PROVIDER = process.env.NEXT_PUBLIC_STORAGE_PROVIDER || 'firebase'; // 'firebase' | 'r2'
+
+// デバッグ用ログ
+if (typeof window !== 'undefined') {
+  console.log('Storage Provider:', STORAGE_PROVIDER);
+}
 
 // 画像アップロード
 export async function uploadImage(
@@ -14,6 +31,15 @@ export async function uploadImage(
   memoryId: string, 
   fileName: string
 ): Promise<{ url: string; path: string }> {
+  console.log('uploadImage called, STORAGE_PROVIDER:', STORAGE_PROVIDER);
+  if (STORAGE_PROVIDER === 'r2') {
+    console.log('Using R2 for image upload');
+    return await uploadImageToR2(file, memoryId, fileName);
+  }
+  
+  console.log('Using Firebase Storage for image upload');
+  
+  // Firebase Storage（デフォルト）
   const storagePath = `users/${memoryId}/uploads/${fileName}`;
   const storageRef = ref(storage, storagePath);
   
@@ -29,6 +55,11 @@ export async function uploadVideo(
   memoryId: string, 
   fileName: string
 ): Promise<{ url: string; path: string }> {
+  if (STORAGE_PROVIDER === 'r2') {
+    return await uploadVideoToR2(file, memoryId, fileName);
+  }
+  
+  // Firebase Storage（デフォルト）
   const storagePath = `users/${memoryId}/uploads/${fileName}`;
   const storageRef = ref(storage, storagePath);
   
@@ -44,6 +75,11 @@ export async function uploadAudio(
   memoryId: string, 
   fileName: string
 ): Promise<{ url: string; path: string }> {
+  if (STORAGE_PROVIDER === 'r2') {
+    return await uploadAudioToR2(file, memoryId, fileName);
+  }
+  
+  // Firebase Storage（デフォルト）
   const storagePath = `users/${memoryId}/uploads/${fileName}`;
   const storageRef = ref(storage, storagePath);
   
@@ -55,12 +91,22 @@ export async function uploadAudio(
 
 // ファイル削除
 export async function deleteFile(path: string): Promise<void> {
+  if (STORAGE_PROVIDER === 'r2') {
+    return await deleteFileFromR2(path);
+  }
+  
+  // Firebase Storage（デフォルト）
   const storageRef = ref(storage, path);
   await deleteObject(storageRef);
 }
 
 // ファイル一覧取得
 export async function listFiles(memoryId: string): Promise<string[]> {
+  if (STORAGE_PROVIDER === 'r2') {
+    return await listFilesFromR2(memoryId);
+  }
+  
+  // Firebase Storage（デフォルト）
   const storageRef = ref(storage, `users/${memoryId}/uploads`);
   const result = await listAll(storageRef);
   
@@ -69,6 +115,11 @@ export async function listFiles(memoryId: string): Promise<string[]> {
 
 // ファイルサイズ取得
 export async function getFileSize(path: string): Promise<number> {
+  if (STORAGE_PROVIDER === 'r2') {
+    return await getFileSizeFromR2(path);
+  }
+  
+  // Firebase Storage（デフォルト）
   const storageRef = ref(storage, path);
   const metadata = await getMetadata(storageRef);
   return metadata.size;
@@ -80,6 +131,11 @@ export async function uploadFile(
   storagePath: string,
   onProgress?: (progress: { loaded: number; total: number }) => void
 ): Promise<{ url: string; thumbnailUrl?: string }> {
+  if (STORAGE_PROVIDER === 'r2') {
+    return await uploadFileToR2(file, storagePath, onProgress);
+  }
+  
+  // Firebase Storage（デフォルト）
   const storageRef = ref(storage, storagePath);
   
   // 進捗コールバックがある場合は使用
