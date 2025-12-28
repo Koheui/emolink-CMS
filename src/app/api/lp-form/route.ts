@@ -3,6 +3,21 @@ import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { getTenantFromOrigin } from '@/lib/security/tenant-validation';
 
+// CORSヘッダーを設定する関数
+function setCorsHeaders(response: NextResponse): NextResponse {
+  response.headers.set('Access-Control-Allow-Origin', '*');
+  response.headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Origin, Referer');
+  response.headers.set('Access-Control-Max-Age', '3600');
+  return response;
+}
+
+// OPTIONSリクエスト（preflight）を処理
+export async function OPTIONS(request: NextRequest) {
+  const response = new NextResponse(null, { status: 204 });
+  return setCorsHeaders(response);
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -24,18 +39,20 @@ export async function POST(request: NextRequest) {
 
     // バリデーション
     if (!email || !tenant || !lpId || !productType) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { ok: false, error: 'Missing required fields' },
         { status: 400 }
       );
+      return setCorsHeaders(response);
     }
 
     // LP側で生成されたリンクと秘密鍵を受け取る
     if (!link || !secretKey) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { ok: false, error: 'Missing link or secretKey from LP' },
         { status: 400 }
       );
+      return setCorsHeaders(response);
     }
 
     // Originベースのテナント検証
@@ -53,10 +70,11 @@ export async function POST(request: NextRequest) {
         actualTenant = tenant;
         actualLpId = lpId;
       } else {
-        return NextResponse.json(
+        const response = NextResponse.json(
           { ok: false, error: 'Invalid origin' },
           { status: 403 }
         );
+        return setCorsHeaders(response);
       }
     }
 
@@ -64,10 +82,11 @@ export async function POST(request: NextRequest) {
     let recaptchaScore = 0.5; // デフォルトスコア
     if (process.env.NODE_ENV !== 'development') {
       if (!recaptchaToken || recaptchaToken === 'dev-token') {
-        return NextResponse.json(
+        const response = NextResponse.json(
           { ok: false, error: 'Invalid reCAPTCHA token' },
           { status: 400 }
         );
+        return setCorsHeaders(response);
       }
       
       // reCAPTCHA検証を実行
@@ -92,10 +111,11 @@ export async function POST(request: NextRequest) {
           const verifyData = await verifyResponse.json();
           
           if (!verifyData.success) {
-            return NextResponse.json(
+            const response = NextResponse.json(
               { ok: false, error: 'reCAPTCHA verification failed', details: verifyData['error-codes'] },
               { status: 400 }
             );
+            return setCorsHeaders(response);
           }
           
           // スコアを取得（v3の場合）
@@ -103,17 +123,19 @@ export async function POST(request: NextRequest) {
           
           // スコアが0.5未満の場合は拒否
           if (recaptchaScore < 0.5) {
-            return NextResponse.json(
+            const response = NextResponse.json(
               { ok: false, error: 'reCAPTCHA score too low', score: recaptchaScore },
               { status: 400 }
             );
+            return setCorsHeaders(response);
           }
         } catch (error) {
           console.error('reCAPTCHA verification error:', error);
-          return NextResponse.json(
+          const response = NextResponse.json(
             { ok: false, error: 'reCAPTCHA verification error' },
             { status: 500 }
           );
+          return setCorsHeaders(response);
         }
       }
     } else {
@@ -206,18 +228,20 @@ export async function POST(request: NextRequest) {
     });
 
     // CMS側でメール送信を行うため、URL設定時に自動送信される
-    return NextResponse.json({
+    const response = NextResponse.json({
       ok: true,
       message: 'Claim request received and saved',
       requestId,
       link: link,
     });
+    return setCorsHeaders(response);
 
   } catch (error) {
     console.error('LP form error:', error);
-    return NextResponse.json(
+    const response = NextResponse.json(
       { ok: false, error: 'Internal server error' },
       { status: 500 }
     );
+    return setCorsHeaders(response);
   }
 }
