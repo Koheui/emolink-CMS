@@ -70,10 +70,10 @@ export default function UsersPage() {
       let q;
       if (tenant) {
         q = query(
-          usersRef, 
-          where('tenant', '==', tenant),
-          orderBy('createdAt', 'desc')
-        );
+        usersRef, 
+        where('tenant', '==', tenant),
+        orderBy('createdAt', 'desc')
+      );
       } else {
         // superAdminの場合は全テナント
         q = query(
@@ -157,7 +157,7 @@ export default function UsersPage() {
     if (Array.isArray(value)) return value.length > 0 ? `${value.length}件` : 'なし';
     return String(value);
   };
-
+      
   // 表示する主要フィールドのリスト
   const getMainFields = (user: UserWithStats): Array<{ key: string; label: string; value: any }> => {
     const fields: Array<{ key: string; label: string; value: any }> = [];

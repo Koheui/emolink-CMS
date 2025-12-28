@@ -157,24 +157,24 @@ export default function CustomersPage() {
                     ) : (
                       filteredCustomers.map((customer, index) => (
                         <AnimatedTableRow key={customer.customerId} index={index} staggerDelay={30}>
-                          <td className="p-4">
-                            <div className="flex items-center gap-2">
-                              <Mail className="h-4 w-4 text-gray-400" />
+                            <td className="p-4">
+                              <div className="flex items-center gap-2">
+                                <Mail className="h-4 w-4 text-gray-400" />
                               <span className="text-sm">{customer.email}</span>
-                            </div>
-                          </td>
-                          <td className="p-4">
+                              </div>
+                            </td>
+                            <td className="p-4">
                             <span className="text-sm">{customer.customerName !== '-' ? customer.customerName : '-'}</span>
-                          </td>
-                          <td className="p-4">
+                            </td>
+                            <td className="p-4">
                             <span className="text-sm font-medium">{customer.memoryCount}件</span>
-                          </td>
-                          <td className="p-4">
+                            </td>
+                            <td className="p-4">
                             <Link href={`/crm/customers/${customer.customerId}`}>
-                              <Button variant="outline" size="sm" className="transition-transform duration-200 hover:scale-105">詳細</Button>
-                            </Link>
-                          </td>
-                        </AnimatedTableRow>
+                                <Button variant="outline" size="sm" className="transition-transform duration-200 hover:scale-105">詳細</Button>
+                              </Link>
+                            </td>
+                          </AnimatedTableRow>
                       ))
                     )}
                   </tbody>

@@ -350,10 +350,11 @@ function AuthContent() {
         throw new Error('認証サービスが利用できません');
       }
 
-      await sendPasswordResetEmail(auth, passwordResetEmail, {
-        url: window.location.origin + '/auth',
-        handleCodeInApp: true,
-      });
+      // handleCodeInApp: falseにすることで、メール内のリンクを直接使用できるようにする
+      // これにより、Firebase Consoleでのドメイン許可設定が不要になる
+      // actionCodeSettingsを省略することで、Firebaseのデフォルト動作を使用
+      // これにより、Firebase Consoleでのドメイン許可設定が不要になる
+      await sendPasswordResetEmail(auth, passwordResetEmail);
 
       setPasswordResetSent(true);
       setMessage('パスワード再発行用のメールを送信しました。メールを確認してください。');
@@ -365,6 +366,9 @@ function AuthContent() {
         errorMessage = 'このメールアドレスは登録されていません。';
       } else if (error.code === 'auth/invalid-email') {
         errorMessage = 'メールアドレスの形式が正しくありません。';
+      } else if (error.code === 'auth/unauthorized-continue-uri') {
+        errorMessage = 'パスワードリセットメールの送信に失敗しました。管理者にお問い合わせください。';
+        console.error('Unauthorized continue URI. Please check Firebase Console > Authentication > Settings > Authorized domains');
       } else if (error.message) {
         errorMessage = error.message;
       }

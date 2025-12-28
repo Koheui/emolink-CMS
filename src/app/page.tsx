@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { Button } from '@/components/ui/button';
@@ -12,11 +12,11 @@ import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { getCurrentTenant } from '@/lib/security/tenant-validation';
+import { getCurrentTenant, getTenantFromOrigin } from '@/lib/security/tenant-validation';
 import { useSecretKeyAuth } from '@/contexts/secret-key-auth-context';
 
 export default function HomePage() {
-  const { user, loading: authLoading, isAuthenticated } = useSecretKeyAuth();
+  const { user, staff, loading: authLoading, isAuthenticated } = useSecretKeyAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [email, setEmail] = useState('');
@@ -24,6 +24,18 @@ export default function HomePage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // CRMサイトかどうかを判定
+  const isCRMSite = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const origin = window.location.origin;
+      const tenantInfo = getTenantFromOrigin(origin);
+      return tenantInfo.lpId === 'crm';
+    } catch {
+      return false;
+    }
+  }, []);
   
   // /public/**パスの場合は公開ページを表示
   useEffect(() => {
@@ -54,6 +66,25 @@ export default function HomePage() {
     }
   }, [pathname]);
   
+  // ログイン済みの場合のリダイレクト処理（条件付きreturnの前に配置）
+  useEffect(() => {
+    if (!authLoading) {
+      if (staff) {
+        // スタッフ（管理者）がログインしている場合
+        if (isCRMSite) {
+          // CRMサイトの場合はCRMダッシュボードへ
+          router.push('/crm');
+        } else {
+          // CMSサイトの場合は管理画面へ
+          router.push('/admin/users');
+        }
+      } else if (isAuthenticated && user) {
+        // エンドユーザーがログインしている場合
+        router.push('/memories/create');
+      }
+    }
+  }, [authLoading, isAuthenticated, user, staff, router, isCRMSite]);
+  
   // 公開ページコンポーネントを動的インポート
   const PublicPageClient = dynamic<{ initialPageId?: string }>(
     () => import('@/components/public-page-client').then(mod => ({ default: mod.PublicPageClient })),
@@ -78,14 +109,6 @@ export default function HomePage() {
       </Suspense>
     );
   }
-
-  // ログイン済みの場合でも、トップページでログインフォームを表示できるようにする
-  // （ログインテストのため、自動リダイレクトを無効化）
-  // useEffect(() => {
-  //   if (!authLoading && isAuthenticated && user) {
-  //     router.push('/memories/create');
-  //   }
-  // }, [authLoading, isAuthenticated, user, router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -172,8 +195,14 @@ export default function HomePage() {
       // ログイン成功後、ページをリロードして認証状態を反映
       // router.pushでは認証状態が反映されない可能性があるため、window.location.hrefを使用
       if (staffData) {
-        // 管理者の場合は管理画面へ
+        // 管理者（スタッフ）の場合
+        if (isCRMSite) {
+          // CRMサイトの場合はCRMダッシュボードへ
+          window.location.href = '/crm';
+        } else {
+          // CMSサイトの場合は管理画面へ
         window.location.href = '/admin/users';
+        }
       } else {
         // エンドユーザーの場合は想い出ページ作成画面へ
         window.location.href = '/memories/create';

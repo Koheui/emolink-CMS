@@ -23,7 +23,7 @@ export default function CRMPage() {
   useEffect(() => {
     if (staff) {
       console.log('[CRM] Staff found, fetching data...', staff);
-      fetchData();
+    fetchData();
     } else {
       console.log('[CRM] No staff found, waiting...');
       // staffが存在しない場合でも、loadingをfalseにしてエラーを表示

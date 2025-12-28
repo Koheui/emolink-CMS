@@ -74,6 +74,7 @@ export interface Memory {
     body?: number;
   };
   blocks: Block[] | any[]; // Block[]またはMediaBlock[]（実装に応じて）
+  ordering?: string[]; // ブロックの表示順序を示すIDの配列
   metadata?: {
     petName?: string;
     petType?: string;

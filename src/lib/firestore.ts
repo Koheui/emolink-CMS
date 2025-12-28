@@ -976,6 +976,7 @@ export async function getStaffByUid(uid: string): Promise<Staff | null> {
       displayName: data.displayName,
       role: data.role,
       adminTenant: data.adminTenant,
+      companyId: data.companyId, // 企業IDを追加
       permissions: data.permissions || {},
       createdAt: data.createdAt?.toDate() || new Date(),
       updatedAt: data.updatedAt?.toDate() || new Date(),
@@ -1007,6 +1008,7 @@ export async function getStaffByEmail(email: string): Promise<Staff | null> {
       displayName: data.displayName,
       role: data.role,
       adminTenant: data.adminTenant,
+      companyId: data.companyId, // 企業IDを追加
       permissions: data.permissions || {},
       createdAt: data.createdAt?.toDate() || new Date(),
       updatedAt: data.updatedAt?.toDate() || new Date(),
@@ -1034,6 +1036,7 @@ export async function getStaffByTenant(tenant: string): Promise<Staff[]> {
         displayName: data.displayName,
         role: data.role,
         adminTenant: data.adminTenant,
+        companyId: data.companyId, // 企業IDを追加
         permissions: data.permissions || {},
         createdAt: data.createdAt?.toDate() || new Date(),
         updatedAt: data.updatedAt?.toDate() || new Date(),

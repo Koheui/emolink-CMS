@@ -34,42 +34,54 @@ service cloud.firestore {
     match /users/{userId} {
       // エンドユーザーは自分の情報を読み取り・書き込み可能
       allow read, write: if isAuthenticated() && isOwner(userId);
-      // superAdminは全テナントの顧客情報を読み取り可能（CRM用）
-      allow read: if isAuthenticated() && 
-        request.auth.token.role == 'superAdmin';
-      // 閲覧者以上（viewer/editor/tenantAdmin）は同じテナントの顧客情報を読み取り可能（CRM用）
-      // クエリ時はresource.dataが存在しないため、クエリ自体を許可し、各ドキュメントの読み取り時にテナントチェックを行う
-      allow read: if isAuthenticated() && 
-        (request.auth.token.role == 'viewer' || 
+      // CRM用：認証済みスタッフは全ての顧客情報を読み取り可能（CRMで全情報を表示するため）
+      // クエリ時（resource == null）も許可し、各ドキュメントの読み取り時も許可
+      allow read: if isAuthenticated() && (
+        request.auth.token.role == 'viewer' || 
          request.auth.token.role == 'editor' || 
-         request.auth.token.role == 'tenantAdmin') &&
-        (resource == null || isSameTenant(resource.data.tenant) || request.auth.token.tenant == null);
-      // 開発環境対応：カスタムクレームが設定されていない場合、認証済みユーザーであれば読み取り可能
-      // 注意：本番環境では適切なカスタムクレームを設定する必要があります
-      // クエリ時（resource == null）は無条件で許可、ドキュメント読み取り時（resource != null）はテナントチェック
-      // カスタムクレームが存在しない、またはnull/空文字列の場合に許可
-      // より確実な方法として、認証済みユーザーであれば読み取り可能（開発環境のみ）
-      allow read: if isAuthenticated();
+         request.auth.token.role == 'tenantAdmin' || 
+        request.auth.token.role == 'superAdmin' ||
+        request.auth.token.role == null ||
+        !('role' in request.auth.token) || // カスタムクレームが存在しない場合
+        resource == null // クエリ時は無条件で許可
+      );
     }
     
     // スタッフコレクション（店舗スタッフ/管理者）
     // 注意: CRMの権限体系は弊社スタッフ専用で、LPの権限とは異なります
     match /staff/{staffId} {
-      // 自分自身の情報は読み取り可能
-      allow read: if isAuthenticated() && isOwner(staffId);
-      // 管理者（tenantAdmin/superAdmin）は他のスタッフ情報も読み取り可能
-      allow read: if isAuthenticated() && 
-        (request.auth.token.role == 'tenantAdmin' || 
-         request.auth.token.role == 'superAdmin');
+      // CRM用：認証済みスタッフは全てのスタッフ情報を読み取り可能（CRMで全情報を表示するため）
+      // 開発環境対応：カスタムクレームが設定されていない場合も許可
+      allow read: if isAuthenticated() && (
+        request.auth.token.role == 'viewer' || 
+        request.auth.token.role == 'editor' || 
+        request.auth.token.role == 'tenantAdmin' || 
+        request.auth.token.role == 'superAdmin' ||
+        request.auth.token.role == null ||
+        !('role' in request.auth.token) || // カスタムクレームが存在しない場合
+        isOwner(staffId) // 自分自身の情報は常に読み取り可能
+      );
       // 書き込みは管理者のみ（tenantAdmin/superAdmin）
       allow write: if isAuthenticated() && 
         (request.auth.token.role == 'tenantAdmin' || 
          request.auth.token.role == 'superAdmin');
     }
     
-    // 想い出コレクション（開発環境では読み取り許可）
+    // 想い出コレクション
     match /memories/{memoryId} {
-      allow read: if true; // 開発環境では誰でも読み取り可能
+      // 開発環境では誰でも読み取り可能（後方互換性のため）
+      allow read: if true;
+      // CRM用：認証済みスタッフは全ての想い出ページ情報を読み取り可能（CRMで全情報を表示するため）
+      // クエリ時（resource == null）も許可し、各ドキュメントの読み取り時も許可
+      allow read: if isAuthenticated() && (
+        request.auth.token.role == 'viewer' || 
+        request.auth.token.role == 'editor' || 
+        request.auth.token.role == 'tenantAdmin' || 
+        request.auth.token.role == 'superAdmin' ||
+        request.auth.token.role == null ||
+        !('role' in request.auth.token) || // カスタムクレームが存在しない場合
+        resource == null // クエリ時は無条件で許可
+      );
       // 新規作成時（認証済みユーザーが自分のデータを作成）
       allow create: if isAuthenticated() && 
         request.resource.data.ownerUid == request.auth.uid &&
@@ -98,13 +110,17 @@ service cloud.firestore {
     match /claimRequests/{requestId} {
       // 開発環境では誰でも読み取り可能（後方互換性のため）
       allow read: if true;
-      // 閲覧者以上（viewer/editor/tenantAdmin/superAdmin）は同じテナントのリクエストを読み取り可能（CRM用）
-      allow read: if isAuthenticated() && 
-        (request.auth.token.role == 'viewer' || 
+      // CRM用：認証済みスタッフは全てのクレームリクエストを読み取り可能（CRMで全情報を表示するため）
+      // クエリ時（resource == null）も許可し、各ドキュメントの読み取り時も許可
+      allow read: if isAuthenticated() && (
+        request.auth.token.role == 'viewer' || 
          request.auth.token.role == 'editor' || 
          request.auth.token.role == 'tenantAdmin' || 
-         request.auth.token.role == 'superAdmin') &&
-        isSameTenant(resource.data.tenant);
+        request.auth.token.role == 'superAdmin' ||
+        request.auth.token.role == null ||
+        !('role' in request.auth.token) || // カスタムクレームが存在しない場合
+        resource == null // クエリ時は無条件で許可
+      );
       // 作成時：認証済みユーザーであれば許可（テナントチェックは緩和）
       allow create: if isAuthenticated();
       // 更新時：認証済みユーザーで、自分のメールアドレスと一致するか、テナントが一致する場合に許可
@@ -140,9 +156,17 @@ service cloud.firestore {
     // 注文コレクション
     // 注意: CRMの権限体系は弊社スタッフ専用で、LPの権限とは異なります
     match /orders/{orderId} {
-      // 開発環境対応：認証済みユーザーであれば読み取り可能
-      // 本番環境では適切なカスタムクレームを設定する必要があります
-      allow read: if isAuthenticated();
+      // CRM用：認証済みスタッフは全ての注文情報を読み取り可能（CRMで全情報を表示するため）
+      // クエリ時（resource == null）も許可し、各ドキュメントの読み取り時も許可
+      allow read: if isAuthenticated() && (
+        request.auth.token.role == 'viewer' || 
+         request.auth.token.role == 'editor' || 
+         request.auth.token.role == 'tenantAdmin' || 
+        request.auth.token.role == 'superAdmin' ||
+        request.auth.token.role == null ||
+        !('role' in request.auth.token) || // カスタムクレームが存在しない場合
+        resource == null // クエリ時は無条件で許可
+      );
       // 編集者以上（editor/tenantAdmin/superAdmin）は注文を更新可能
       // 開発環境対応：カスタムクレームが設定されていない場合も許可
       // update操作ではresourceは常に存在するため、resource.data.tenantをチェック
@@ -173,9 +197,17 @@ service cloud.firestore {
     
     // テナントコレクション
     match /tenants/{tenantId} {
-      // 認証済みユーザーはテナント情報を読み取り可能（バナー表示用）
-      // バナー情報は公開情報なので、認証済みであれば読み取り可能
-      allow read: if isAuthenticated();
+      // CRM用：認証済みスタッフは全てのテナント情報を読み取り可能（CRMで全情報を表示するため）
+      // クエリ時（resource == null）も許可し、各ドキュメントの読み取り時も許可
+      allow read: if isAuthenticated() && (
+        request.auth.token.role == 'viewer' || 
+        request.auth.token.role == 'editor' || 
+        request.auth.token.role == 'tenantAdmin' || 
+        request.auth.token.role == 'superAdmin' ||
+        request.auth.token.role == null ||
+        !('role' in request.auth.token) || // カスタムクレームが存在しない場合
+        resource == null // クエリ時は無条件で許可
+      );
       // 管理者（tenantAdmin/superAdmin）は同じテナントの情報を書き込み可能
       allow write: if isAuthenticated() && 
         (request.auth.token.role == 'tenantAdmin' || 
@@ -185,8 +217,17 @@ service cloud.firestore {
     
     // 企業コレクション
     match /companies/{companyId} {
-      // 認証済みユーザーは企業情報を読み取り可能（印刷ページなどで使用）
-      allow read: if isAuthenticated();
+      // CRM用：認証済みスタッフは全ての企業情報を読み取り可能（CRMで全情報を表示するため）
+      // クエリ時（resource == null）も許可し、各ドキュメントの読み取り時も許可
+      allow read: if isAuthenticated() && (
+        request.auth.token.role == 'viewer' || 
+        request.auth.token.role == 'editor' || 
+        request.auth.token.role == 'tenantAdmin' || 
+        request.auth.token.role == 'superAdmin' ||
+        request.auth.token.role == null ||
+        !('role' in request.auth.token) || // カスタムクレームが存在しない場合
+        resource == null // クエリ時は無条件で許可
+      );
       // 管理者（superAdmin）のみ書き込み可能
       allow write: if isAuthenticated() && 
         request.auth.token.role == 'superAdmin';

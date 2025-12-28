@@ -228,10 +228,9 @@ export default function CustomerDetailPage() {
       setResettingPassword(true);
       setPasswordResetSent(false);
       
-      await sendPasswordResetEmail(auth, customerDetail.user.email, {
-        url: window.location.origin + '/auth',
-        handleCodeInApp: true,
-      });
+      // actionCodeSettingsを省略することで、Firebaseのデフォルト動作を使用
+      // これにより、Firebase Consoleでのドメイン許可設定が不要になる
+      await sendPasswordResetEmail(auth, customerDetail.user.email);
       
       setPasswordResetSent(true);
       alert('パスワードリセットメールを送信しました');
@@ -243,6 +242,9 @@ export default function CustomerDetailPage() {
         errorMessage = 'このメールアドレスは登録されていません';
       } else if (err.code === 'auth/invalid-email') {
         errorMessage = 'メールアドレスの形式が正しくありません';
+      } else if (err.code === 'auth/unauthorized-continue-uri') {
+        errorMessage = 'パスワードリセットメールの送信に失敗しました。管理者にお問い合わせください。';
+        console.error('Unauthorized continue URI. Please check Firebase Console > Authentication > Settings > Authorized domains');
       } else if (err.message) {
         errorMessage = err.message;
       }

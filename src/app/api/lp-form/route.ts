@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { getTenantFromOrigin } from '@/lib/security/tenant-validation';
 
 // CORSヘッダーを設定する関数
@@ -155,8 +155,8 @@ export async function POST(request: NextRequest) {
       recaptchaScore: recaptchaScore,
       status: 'pending',
       source: 'lp_form', // LPフォーム経由
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     };
 
     // LP側で生成されたリンクからJWTトークンを抽出
@@ -196,7 +196,7 @@ export async function POST(request: NextRequest) {
       claimRequestWithLink.emailFooterMessage = emailFooterMessage;
     }
 
-    const docRef = await addDoc(collection(db, 'claimRequests'), claimRequestWithLink);
+    const docRef = await adminDb.collection('claimRequests').add(claimRequestWithLink);
     const requestId = docRef.id;
 
     // 2. 注文（orders）を作成（BtoB店舗受付用）
@@ -213,18 +213,21 @@ export async function POST(request: NextRequest) {
       secretKeyExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30日
       paymentStatus: 'completed', // 決済済み
       source: 'lp_form', // LPフォーム経由
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     };
 
-    await addDoc(collection(db, 'orders'), orderData);
+    await adminDb.collection('orders').add(orderData);
 
     // 監査ログに記録
-    await addDoc(collection(db, 'auditLogs'), {
+    // auditLogsは日付でサブコレクションになっているため、日付を取得
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+    await adminDb.collection('auditLogs').doc(dateStr).collection('items').add({
       action: 'lpForm.received',
       target: requestId,
       payload: { email, tenant: actualTenant, lpId: actualLpId, link, hasSecretKey: !!secretKey },
-      ts: serverTimestamp(),
+      ts: FieldValue.serverTimestamp(),
     });
 
     // CMS側でメール送信を行うため、URL設定時に自動送信される

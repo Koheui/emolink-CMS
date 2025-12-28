@@ -31,6 +31,18 @@ export default function SalesPage() {
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
   const [monthlySales, setMonthlySales] = useState<MonthlySales[]>([]);
   
+  // 期間選択（開始日・終了日）
+  const [startDate, setStartDate] = useState<string>(() => {
+    const date = new Date();
+    date.setDate(1); // 月初め
+    return date.toISOString().split('T')[0];
+  });
+  const [endDate, setEndDate] = useState<string>(() => {
+    const date = new Date();
+    return date.toISOString().split('T')[0];
+  });
+  const [useDateRange, setUseDateRange] = useState<boolean>(true); // デフォルトで期間指定モード
+  
   const fetchOrders = useCallback(async () => {
     if (!staff) {
       setError('スタッフ情報が取得できませんでした');
@@ -138,8 +150,8 @@ export default function SalesPage() {
     setMonthlySales(salesArray);
   }, [orders]);
   
-  // 選択された月の注文を取得
-  const getSelectedMonthOrders = (): Order[] => {
+  // 選択された期間の注文を取得
+  const getSelectedPeriodOrders = (): Order[] => {
     return orders.filter(order => {
       // 注文が存在するだけで販売実績としてカウント（決済ステータスは問わない）
       // 注文日を使用（決済完了日は使用しない）
@@ -162,16 +174,27 @@ export default function SalesPage() {
         return false;
       }
       
-      const year = dateObj.getFullYear();
-      const month = dateObj.getMonth() + 1;
-      
-      return year === selectedYear && month === selectedMonth;
+      if (useDateRange) {
+        // 期間指定モード：開始日から終了日まで
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        
+        return dateObj >= start && dateObj <= end;
+      } else {
+        // 月選択モード：選択された年月
+        const year = dateObj.getFullYear();
+        const month = dateObj.getMonth() + 1;
+        
+        return year === selectedYear && month === selectedMonth;
+      }
     });
   };
   
   // CSVエクスポート
   const exportToCSV = () => {
-    const selectedOrders = getSelectedMonthOrders();
+    const selectedOrders = getSelectedPeriodOrders();
     const csvHeader = '注文ID,メールアドレス,商品,注文日,決済完了日,ステータス,NFC書き込み\n';
     const csvRows = selectedOrders.map(order => {
       return [
@@ -190,7 +213,12 @@ export default function SalesPage() {
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
-    link.setAttribute('download', `販売リスト_${selectedYear}年${selectedMonth}月.csv`);
+    
+    // ファイル名を期間に応じて変更
+    const fileName = useDateRange
+      ? `販売リスト_${startDate}_${endDate}.csv`
+      : `販売リスト_${selectedYear}年${selectedMonth}月.csv`;
+    link.setAttribute('download', fileName);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -235,7 +263,7 @@ export default function SalesPage() {
     );
   }
   
-  const selectedMonthOrders = getSelectedMonthOrders();
+  const selectedPeriodOrders = getSelectedPeriodOrders();
   const currentMonthSales = monthlySales.find(s => s.year === selectedYear && s.month === selectedMonth);
   
   // 統計情報
@@ -262,7 +290,7 @@ export default function SalesPage() {
           </div>
         </div>
         
-        {/* 月選択 */}
+        {/* 期間選択 */}
         <AnimatedCard delay={0} variant="fade-in-up" className="mb-6">
           <Card>
             <CardHeader>
@@ -270,33 +298,96 @@ export default function SalesPage() {
                 <Calendar className="h-5 w-5" />
                 期間選択
               </CardTitle>
+              <CardDescription>
+                月選択または期間指定で販売データを確認できます
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <label className="text-sm font-medium text-gray-700">年:</label>
-                  <Input
-                    type="number"
-                    value={selectedYear}
-                    onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                    className="w-24"
-                  />
+              <div className="space-y-4">
+                {/* モード切り替え */}
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      checked={!useDateRange}
+                      onChange={() => setUseDateRange(false)}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm font-medium">月選択</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      checked={useDateRange}
+                      onChange={() => setUseDateRange(true)}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm font-medium">期間指定</span>
+                  </label>
                 </div>
-                <div className="flex items-center gap-2">
-                  <label className="text-sm font-medium text-gray-700">月:</label>
-                  <Input
-                    type="number"
-                    min="1"
-                    max="12"
-                    value={selectedMonth}
-                    onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                    className="w-20"
-                  />
+                
+                {!useDateRange ? (
+                  // 月選択モード
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm font-medium text-gray-700">年:</label>
+                      <Input
+                        type="number"
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(parseInt(e.target.value) || new Date().getFullYear())}
+                        className="w-24"
+                        min="2000"
+                        max="2100"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm font-medium text-gray-700">月:</label>
+                      <Input
+                        type="number"
+                        min="1"
+                        max="12"
+                        value={selectedMonth}
+                        onChange={(e) => {
+                          const month = parseInt(e.target.value);
+                          if (month >= 1 && month <= 12) {
+                            setSelectedMonth(month);
+                          }
+                        }}
+                        className="w-20"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  // 期間指定モード
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm font-medium text-gray-700">開始日:</label>
+                      <Input
+                        type="date"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        className="w-40"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm font-medium text-gray-700">終了日:</label>
+                      <Input
+                        type="date"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        className="w-40"
+                        min={startDate}
+                      />
+                    </div>
+                  </div>
+                )}
+                
+                <div className="flex items-center gap-2 pt-2 border-t">
+                  <Button onClick={exportToCSV} className="ml-auto">
+                    <Download className="h-4 w-4 mr-2" />
+                    CSVエクスポート ({selectedPeriodOrders.length}件)
+                  </Button>
                 </div>
-                <Button onClick={exportToCSV} className="ml-auto">
-                  <Download className="h-4 w-4 mr-2" />
-                  CSVエクスポート
-                </Button>
               </div>
             </CardContent>
           </Card>
@@ -349,12 +440,15 @@ export default function SalesPage() {
           </Card>
         </AnimatedCard>
         
-        {/* 選択された月の詳細リスト */}
+        {/* 選択された期間の詳細リスト */}
         <AnimatedCard delay={200} variant="fade-in-up">
           <Card>
             <CardHeader>
               <CardTitle>
-                {selectedYear}年{selectedMonth}月の販売リスト ({selectedMonthOrders.length}件)
+                {useDateRange 
+                  ? `${startDate} ～ ${endDate} の販売リスト (${selectedPeriodOrders.length}件)`
+                  : `${selectedYear}年${selectedMonth}月の販売リスト (${selectedPeriodOrders.length}件)`
+                }
               </CardTitle>
               <CardDescription>注文一覧</CardDescription>
             </CardHeader>
@@ -372,14 +466,14 @@ export default function SalesPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {selectedMonthOrders.length === 0 ? (
+                    {selectedPeriodOrders.length === 0 ? (
                       <tr>
                         <td colSpan={6} className="text-center p-8 text-gray-500">
                           この期間の注文はありません
                         </td>
                       </tr>
                     ) : (
-                      selectedMonthOrders.map((order) => (
+                      selectedPeriodOrders.map((order) => (
                         <tr key={order.id} className="border-b hover:bg-gray-50">
                           <td className="p-4">
                             <span className="text-sm font-mono">{order.id.substring(0, 8)}...</span>

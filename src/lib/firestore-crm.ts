@@ -36,10 +36,10 @@ export async function getAllUsers(staffTenant: string | null = null): Promise<Us
   } else {
     // テナントフィルタなし（superAdminの場合、ただしセキュリティルールの制約により実際には取得できない可能性がある）
     q = query(
-      usersRef,
-      orderBy('createdAt', 'desc'),
-      limit(1000) // 最大1000件まで取得
-    );
+    usersRef,
+    orderBy('createdAt', 'desc'),
+    limit(1000) // 最大1000件まで取得
+  );
   }
   
   try {
@@ -110,9 +110,15 @@ export async function getAllUsers(staffTenant: string | null = null): Promise<Us
   }
 }
 
-// 全店舗を取得（テナントフィルタ付き、管理者向け）
+// 店舗情報に企業情報を含む拡張型
+export interface TenantWithCompany extends Tenant {
+  companyName?: string;
+  companyId?: string;
+}
+
+// 全店舗を取得（テナントフィルタ付き、管理者向け、企業情報を含む）
 // staffTenant: スタッフが管理するテナントID（superAdminの場合はnullで全テナント）
-export async function getAllTenants(staffTenant: string | null = null): Promise<Tenant[]> {
+export async function getAllTenants(staffTenant: string | null = null): Promise<TenantWithCompany[]> {
   const tenantsRef = collection(db, 'tenants');
   
   // テナントフィルタを追加（セキュリティルールに合わせる）
@@ -131,12 +137,43 @@ export async function getAllTenants(staffTenant: string | null = null): Promise<
   
   try {
     const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({
+    const tenants = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
       createdAt: doc.data().createdAt?.toDate() || new Date(),
       updatedAt: doc.data().updatedAt?.toDate() || new Date(),
     })) as Tenant[];
+    
+    // 企業情報を取得
+    const companyIds = Array.from(new Set(tenants.map(t => t.companyId).filter(Boolean) as string[]));
+    const companyMap = new Map<string, Company>();
+    
+    if (companyIds.length > 0) {
+      const companiesRef = collection(db, 'companies');
+      const companyPromises = companyIds.map(async (companyId) => {
+        try {
+          const companyDoc = await getDoc(doc(companiesRef, companyId));
+          if (companyDoc.exists()) {
+            const companyData = companyDoc.data();
+            companyMap.set(companyId, {
+              id: companyDoc.id,
+              ...companyData,
+              createdAt: companyData.createdAt?.toDate() || new Date(),
+              updatedAt: companyData.updatedAt?.toDate() || new Date(),
+            } as Company);
+          }
+        } catch (err) {
+          console.warn(`Failed to fetch company ${companyId}:`, err);
+        }
+      });
+      await Promise.all(companyPromises);
+    }
+    
+    // 企業情報を店舗情報に追加
+    return tenants.map(tenant => ({
+      ...tenant,
+      companyName: tenant.companyId ? companyMap.get(tenant.companyId)?.name : undefined,
+    })) as TenantWithCompany[];
   } catch (error: any) {
     // インデックスエラーの場合、orderByを削除して再試行
     if (error.code === 'failed-precondition' || 
@@ -159,8 +196,39 @@ export async function getAllTenants(staffTenant: string | null = null): Promise<
         updatedAt: doc.data().updatedAt?.toDate() || new Date(),
       })) as Tenant[];
       
+      // 企業情報を取得
+      const companyIds = Array.from(new Set(tenants.map(t => t.companyId).filter(Boolean) as string[]));
+      const companyMap = new Map<string, Company>();
+      
+      if (companyIds.length > 0) {
+        const companiesRef = collection(db, 'companies');
+        const companyPromises = companyIds.map(async (companyId) => {
+          try {
+            const companyDoc = await getDoc(doc(companiesRef, companyId));
+            if (companyDoc.exists()) {
+              const companyData = companyDoc.data();
+              companyMap.set(companyId, {
+                id: companyDoc.id,
+                ...companyData,
+                createdAt: companyData.createdAt?.toDate() || new Date(),
+                updatedAt: companyData.updatedAt?.toDate() || new Date(),
+              } as Company);
+            }
+          } catch (err) {
+            console.warn(`Failed to fetch company ${companyId}:`, err);
+          }
+        });
+        await Promise.all(companyPromises);
+      }
+      
+      // 企業情報を店舗情報に追加
+      const tenantsWithCompany = tenants.map(tenant => ({
+        ...tenant,
+        companyName: tenant.companyId ? companyMap.get(tenant.companyId)?.name : undefined,
+      })) as TenantWithCompany[];
+      
       // クライアント側でソート
-      return tenants.sort((a, b) => {
+      return tenantsWithCompany.sort((a, b) => {
         const aTime = a.createdAt.getTime();
         const bTime = b.createdAt.getTime();
         return bTime - aTime;
@@ -330,8 +398,16 @@ export async function deleteCustomerAccount(uid: string): Promise<void> {
   // 注意: 実際の運用では、memoriesは保持するか、論理削除にすることを推奨
 }
 
-// 店舗の詳細情報を取得
-export async function getTenantDetail(tenantId: string): Promise<Tenant | null> {
+// 店舗詳細情報の拡張型
+export interface TenantDetailWithCompany extends Tenant {
+  company?: Company;
+  staffCount?: number;
+  memoryCount?: number;
+  orderCount?: number;
+}
+
+// 店舗の詳細情報を取得（企業情報、スタッフ数、メモリー数を含む）
+export async function getTenantDetail(tenantId: string): Promise<TenantDetailWithCompany | null> {
   const tenantRef = doc(db, 'tenants', tenantId);
   const tenantSnap = await getDoc(tenantRef);
   
@@ -339,12 +415,72 @@ export async function getTenantDetail(tenantId: string): Promise<Tenant | null> 
     return null;
   }
   
-  return {
+  const tenant = {
     id: tenantSnap.id,
     ...tenantSnap.data(),
     createdAt: tenantSnap.data().createdAt?.toDate() || new Date(),
     updatedAt: tenantSnap.data().updatedAt?.toDate() || new Date(),
   } as Tenant;
+  
+  // 企業情報を取得
+  let company: Company | undefined;
+  if (tenant.companyId) {
+    try {
+      const companyRef = doc(db, 'companies', tenant.companyId);
+      const companySnap = await getDoc(companyRef);
+      if (companySnap.exists()) {
+        company = {
+          id: companySnap.id,
+          ...companySnap.data(),
+          createdAt: companySnap.data().createdAt?.toDate() || new Date(),
+          updatedAt: companySnap.data().updatedAt?.toDate() || new Date(),
+        } as Company;
+      }
+    } catch (err) {
+      console.warn(`Failed to fetch company ${tenant.companyId}:`, err);
+    }
+  }
+  
+  // スタッフ数を取得
+  let staffCount = 0;
+  try {
+    const staffRef = collection(db, 'staff');
+    const staffQuery = query(staffRef, where('adminTenant', '==', tenantId));
+    const staffSnapshot = await getDocs(staffQuery);
+    staffCount = staffSnapshot.size;
+  } catch (err) {
+    console.warn('Failed to fetch staff count:', err);
+  }
+  
+  // メモリー数を取得
+  let memoryCount = 0;
+  try {
+    const memoriesRef = collection(db, 'memories');
+    const memoriesQuery = query(memoriesRef, where('tenant', '==', tenantId));
+    const memoriesSnapshot = await getDocs(memoriesQuery);
+    memoryCount = memoriesSnapshot.size;
+  } catch (err) {
+    console.warn('Failed to fetch memory count:', err);
+  }
+  
+  // 注文数を取得
+  let orderCount = 0;
+  try {
+    const ordersRef = collection(db, 'orders');
+    const ordersQuery = query(ordersRef, where('tenant', '==', tenantId));
+    const ordersSnapshot = await getDocs(ordersQuery);
+    orderCount = ordersSnapshot.size;
+  } catch (err) {
+    console.warn('Failed to fetch order count:', err);
+  }
+  
+  return {
+    ...tenant,
+    company,
+    staffCount,
+    memoryCount,
+    orderCount,
+  };
 }
 
 // 注文を取得（テナントフィルタ付き）

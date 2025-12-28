@@ -20,6 +20,7 @@ import { db } from '@/lib/firebase';
 interface CompanyWithCounts extends Company {
   tenantCount?: number;
   staffCount?: number;
+  contactPersonName?: string; // 担当者名（tenantAdminのdisplayName）
 }
 
 export default function CompaniesPage() {
@@ -33,13 +34,8 @@ export default function CompaniesPage() {
   
   useEffect(() => {
     if (staff) {
-      // superAdminのみ企業一覧を表示
-      if (staff.role === 'superAdmin') {
-        fetchCompanies();
-      } else {
-        setError('企業一覧はスーパー管理者のみ閲覧可能です');
-        setLoading(false);
-      }
+      // CRM用：認証済みスタッフは全て企業一覧を表示可能
+      fetchCompanies();
     }
   }, [staff]);
   
@@ -58,7 +54,7 @@ export default function CompaniesPage() {
     }
   }, [searchTerm, companies]);
   
-  const fetchTenantAndStaffCounts = async (companyId: string): Promise<{ tenantCount: number; staffCount: number }> => {
+  const fetchTenantAndStaffCounts = async (companyId: string): Promise<{ tenantCount: number; staffCount: number; contactPersonName?: string }> => {
     try {
       // 店舗登録数を取得
       const tenantsRef = collection(db, 'tenants');
@@ -72,7 +68,21 @@ export default function CompaniesPage() {
       const staffCountSnapshot = await getCountFromServer(staffQuery);
       const staffCount = staffCountSnapshot.data().count;
       
-      return { tenantCount, staffCount };
+      // 担当者名を取得（tenantAdminロールのスタッフのdisplayName）
+      let contactPersonName: string | undefined;
+      try {
+        const staffDocs = await getDocs(staffQuery);
+        const tenantAdmin = staffDocs.docs
+          .map(doc => ({ uid: doc.id, ...doc.data() } as { uid: string; role?: string; displayName?: string }))
+          .find((s) => s.role === 'tenantAdmin');
+        if (tenantAdmin && tenantAdmin.displayName) {
+          contactPersonName = tenantAdmin.displayName;
+        }
+      } catch (err) {
+        console.warn('Error fetching contact person name:', err);
+      }
+      
+      return { tenantCount, staffCount, contactPersonName };
     } catch (err) {
       console.error('Error fetching counts:', err);
       return { tenantCount: 0, staffCount: 0 };
@@ -84,14 +94,15 @@ export default function CompaniesPage() {
       setLoading(true);
       const companiesData = await getAllCompanies();
       
-      // 各企業に対して店舗登録数とスタッフ登録数を取得
+      // 各企業に対して店舗登録数、スタッフ登録数、担当者名を取得
       const companiesWithCounts = await Promise.all(
         companiesData.map(async (company) => {
-          const { tenantCount, staffCount } = await fetchTenantAndStaffCounts(company.id);
+          const { tenantCount, staffCount, contactPersonName } = await fetchTenantAndStaffCounts(company.id);
           return {
             ...company,
             tenantCount,
             staffCount,
+            contactPersonName,
           } as CompanyWithCounts;
         })
       );
@@ -242,7 +253,7 @@ export default function CompaniesPage() {
                               </div>
                             </td>
                             <td className="p-4">
-                              <span className="text-sm">{company.contact?.name || '-'}</span>
+                              <span className="text-sm">{company.contactPersonName || '-'}</span>
                             </td>
                             <td className="p-4">
                               <div className="flex items-center gap-2">

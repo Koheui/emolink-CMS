@@ -7,7 +7,6 @@ import { db } from '@/lib/firebase';
 import { Play, ArrowLeft, Share2, X, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 import { linkifyText } from '@/lib/text-utils';
-import { TenantAdvertisement } from '@/components/tenant-advertisement';
 
 // ヘックスカラーをRGBに変換する関数
 const hexToRgb = (hex: string): { r: number; g: number; b: number } | null => {
@@ -588,7 +587,7 @@ export function PublicPageClient({ initialPageId }: PublicPageClientProps) {
   const coverImageRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLDivElement>(null);
   const bioSectionRef = useRef<HTMLDivElement>(null);
-  const [visibleSections, setVisibleSections] = useState<Set<string>>(new Set());
+  const [visibleSections, setVisibleSections] = useState<Set<string>>(new Set(['cover', 'title']));
   
   // スクロール時のアニメーション用のIntersection Observer
   useEffect(() => {
@@ -636,7 +635,10 @@ export function PublicPageClient({ initialPageId }: PublicPageClientProps) {
             }
           });
         },
-        { threshold: 0.1 }
+        { 
+          threshold: 0.1,
+          rootMargin: '100px' // 要素が画面に入る100px前にトリガー
+        }
       );
       observer.observe(bioSectionRef.current);
       observers.push(observer);
@@ -653,7 +655,10 @@ export function PublicPageClient({ initialPageId }: PublicPageClientProps) {
             }
           });
         },
-        { threshold: 0.1 }
+        { 
+          threshold: 0.1,
+          rootMargin: '100px' // 要素が画面に入る100px前にトリガー
+        }
       );
       observer.observe(block);
       observers.push(observer);
@@ -772,7 +777,7 @@ export function PublicPageClient({ initialPageId }: PublicPageClientProps) {
               coverImageScale: coverScale,
               profileImagePosition: profilePosition,
               profileImageScale: profileScale,
-              ordering: (previewData.blocks || []).map((b: any) => b.id),
+              ordering: previewData.ordering || (previewData.blocks || []).map((b: any) => b.id),
               topicsTitle: previewData.topicsTitle || 'Topics',
               messageTitle: previewData.messageTitle || 'Message',
               publish: {
@@ -787,12 +792,26 @@ export function PublicPageClient({ initialPageId }: PublicPageClientProps) {
               updatedAt: new Date(),
             });
             // メディアブロックを設定（公開設定のもののみ）、thumbnailをthumbnailUrlにマッピング
-            setMediaBlocks((previewData.blocks || [])
+            let previewBlocks = (previewData.blocks || [])
               .filter((b: any) => b.visibility === 'public')
               .map((b: any) => ({
                 ...b,
                 thumbnailUrl: b.thumbnailUrl || b.thumbnail, // thumbnailもthumbnailUrlとして扱う
-              })));
+              }));
+            
+            // orderingに従ってソート
+            if (previewData.ordering && Array.isArray(previewData.ordering)) {
+              const orderMap = new Map<string, number>(
+                previewData.ordering.map((id: string, index: number) => [id, index])
+              );
+              previewBlocks = previewBlocks.sort((a: any, b: any) => {
+                const orderA: number = orderMap.get(a.id) ?? 999999;
+                const orderB: number = orderMap.get(b.id) ?? 999999;
+                return orderA - orderB;
+              });
+            }
+            
+            setMediaBlocks(previewBlocks);
             setLoading(false);
             return;
           } catch (err) {
@@ -841,7 +860,6 @@ export function PublicPageClient({ initialPageId }: PublicPageClientProps) {
       
       try {
         setLoading(true);
-        console.log('Fetching publicPage document:', pageId);
         const pageDoc = await getDoc(doc(db, 'publicPages', pageId));
         
         if (!pageDoc.exists()) {
@@ -913,13 +931,16 @@ export function PublicPageClient({ initialPageId }: PublicPageClientProps) {
           messageTitle: data.messageTitle,
           gradient: (data.colors as any)?.gradient,
           colors: data.colors,
+          media: data.media,
+          hasCoverImage: !!data.media?.cover,
+          coverImageUrl: data.media?.cover,
         });
-        console.log('Album blocks count:', mediaBlocks.filter(b => b.type === 'album').length);
         setPageData({
           ...data,
           id: pageDoc.id,
           // mediaが存在しない場合は空のオブジェクトを設定
           media: data.media || { cover: undefined, profile: undefined },
+          ordering: data.ordering || [],
           topicsTitle: data.topicsTitle || 'Topics',
           messageTitle: data.messageTitle || 'Message',
         });
@@ -931,13 +952,34 @@ export function PublicPageClient({ initialPageId }: PublicPageClientProps) {
             if (memoryDoc.exists()) {
               const memoryData = memoryDoc.data();
               const blocks = memoryData.blocks || [];
+              
               // 公開設定のブロックのみを表示し、thumbnailをthumbnailUrlにマッピング
-              const publicBlocks = blocks
+              let publicBlocks = blocks
                 .filter((b: any) => b.visibility === 'public')
                 .map((b: any) => ({
                   ...b,
                   thumbnailUrl: b.thumbnailUrl || b.thumbnail, // thumbnailもthumbnailUrlとして扱う
                 }));
+              
+              // orderingに従ってソート（publicPageのorderingを優先、なければmemoryのorderingを使用）
+              const orderingToUse = data.ordering && data.ordering.length > 0 
+                ? data.ordering 
+                : (memoryData.ordering && Array.isArray(memoryData.ordering) ? memoryData.ordering : []);
+              
+              if (orderingToUse.length > 0) {
+                const orderMap = new Map<string, number>(
+                  orderingToUse.map((id: string, index: number) => [id, index])
+                );
+                publicBlocks = publicBlocks.sort((a: any, b: any) => {
+                  const orderA: number = orderMap.get(a.id) ?? 999999;
+                  const orderB: number = orderMap.get(b.id) ?? 999999;
+                  return orderA - orderB;
+                });
+                
+                // pageDataにorderingを反映
+                setPageData(prev => prev ? { ...prev, ordering: orderingToUse } : null);
+              }
+              
               setMediaBlocks(publicBlocks);
             }
           } catch (err) {
@@ -972,7 +1014,6 @@ export function PublicPageClient({ initialPageId }: PublicPageClientProps) {
   const memorialMessage = 'Forever in our hearts, a life full of adventure and love.';
 
   if (error || !pageData) {
-    console.log('Error or no pageData:', { error, pageData: !!pageData, loading });
     return (
       <div className="min-h-screen bg-[#0f0f0f] text-white flex items-center justify-center">
         <div className="text-center">
@@ -1121,20 +1162,24 @@ export function PublicPageClient({ initialPageId }: PublicPageClientProps) {
       )}
 
       {/* コンテンツエリア（カバー画像の下にスクロール可能なコンテンツ） */}
-      <div className="relative z-20 rounded-t-2xl" style={{ marginTop: '100svh', backgroundColor: colors.background, minHeight: '100vh', position: 'relative' }}>
+      <div 
+        className="relative z-20 rounded-t-2xl" 
+        style={{ 
+          marginTop: '100svh', 
+          backgroundColor: colors.background, 
+          minHeight: '100vh', 
+          position: 'relative'
+        }}
+      >
         {/* ドラッグハンドル（角丸の真ん中） */}
         <div className="absolute top-4 left-1/2 transform -translate-x-1/2 w-12 h-1.5 rounded-full" style={{ backgroundColor: colors.text, opacity: 0.6 }}></div>
         {/* Bioセクション（カバー画像の下、Topicsの上） */}
         {(pageData.title || pageData.about || pageData.bio || pageData.media?.profile) && (
           <div 
             ref={bioSectionRef}
-            className={`w-full pt-16 pb-6 transition-all duration-700 ${
-              visibleSections.has('bio') 
-                ? 'opacity-100 translate-y-0' 
-                : 'opacity-0 translate-y-8'
-            }`}
+            className="w-full pt-16 pb-0 opacity-100 translate-y-0"
           >
-            <div className="max-w-2xl mx-auto px-6 sm:px-8 md:px-10">
+            <div className="max-w-2xl mx-auto px-4 sm:px-6 md:px-8">
               <div className="flex flex-row gap-6 sm:gap-8 items-start">
                 {/* プロフィール写真 */}
                 {pageData.media?.profile && (
@@ -1204,8 +1249,21 @@ export function PublicPageClient({ initialPageId }: PublicPageClientProps) {
         )}
 
       {/* Topicsセクション（カバー画像の下、横スクロール） */}
-      {mediaBlocks.filter(block => block.isTopic && block.visibility === 'public').length > 0 && (
-        <div className="w-full py-2" style={{ backgroundColor: colors.background }}>
+      {(() => {
+        let topicsBlocks = mediaBlocks.filter(block => block.isTopic && block.visibility === 'public');
+        
+        // orderingに基づいてソート
+        if (pageData.ordering && Array.isArray(pageData.ordering)) {
+          const orderMap = new Map(pageData.ordering.map((id: string, index: number) => [id, index]));
+          topicsBlocks = topicsBlocks.sort((a, b) => {
+            const orderA = orderMap.get(a.id) ?? 999999;
+            const orderB = orderMap.get(b.id) ?? 999999;
+            return orderA - orderB;
+          });
+        }
+        
+        return topicsBlocks.length > 0 ? (
+        <div className="w-full mt-6 mb-12" style={{ backgroundColor: colors.background }}>
           <div className="max-w-2xl mx-auto px-4 sm:px-6 md:px-8">
             <h3 className="text-lg font-bold mb-4" style={{ color: colors.text }}>
               {pageData.topicsTitle || 'Topics'}
@@ -1213,8 +1271,7 @@ export function PublicPageClient({ initialPageId }: PublicPageClientProps) {
             <div className="overflow-x-auto scrollbar-hide -mx-4 sm:-mx-6 md:-mx-8" style={{ WebkitOverflowScrolling: 'touch' }}>
               <div className="flex gap-4 px-4 sm:px-6 md:px-8" style={{ width: 'max-content' }}>
               {/* すべてのアイテムを横スクロールで表示 */}
-              {mediaBlocks
-                .filter(block => block.isTopic && block.visibility === 'public')
+              {topicsBlocks
                 .flatMap((block, index) => {
                   // 横スクロールで表示するため、すべて同じサイズに統一
                   const itemSize = 200; // すべて200pxに統一
@@ -1534,26 +1591,48 @@ export function PublicPageClient({ initialPageId }: PublicPageClientProps) {
             </div>
           </div>
         </div>
-      )}
+        ) : null;
+      })()}
 
         {/* コンテンツエリア */}
-        <div className="max-w-2xl mx-auto pb-8 pt-6">
+        <div className="max-w-2xl mx-auto">
 
-        {/* 1枚のみの写真・動画を表示（単体で2:1アスペクト比） */}
-        {mediaBlocks.filter(block => !block.isTopic && block.type !== 'text' && block.type !== 'album' && block.visibility === 'public' && ((block.type === 'image' && block.url) || (block.type === 'video' && block.url))).length > 0 && (
-          <div className="w-full py-2" style={{ backgroundColor: colors.background }}>
+        {/* 1枚のみの写真・動画・アルバムを表示（単体で2:1アスペクト比、orderingに基づいて順序表示） */}
+        {(() => {
+          // orderingに基づいて全体をソート
+          let allOrderedBlocks: any[] = [];
+          if (pageData.ordering && Array.isArray(pageData.ordering) && pageData.ordering.length > 0) {
+            // orderingに基づいて順序を決定
+            const orderMap = new Map(pageData.ordering.map((id: string, index: number) => [id, index]));
+            allOrderedBlocks = mediaBlocks
+              .filter(block => !block.isTopic && block.type !== 'text' && block.visibility === 'public')
+              .sort((a, b) => {
+                const orderA = orderMap.get(a.id) ?? 999999;
+                const orderB = orderMap.get(b.id) ?? 999999;
+                return orderA - orderB;
+              });
+          } else {
+            // orderingがない場合は従来通り
+            allOrderedBlocks = mediaBlocks.filter(block => !block.isTopic && block.type !== 'text' && block.type !== 'album' && block.visibility === 'public' && ((block.type === 'image' && block.url) || (block.type === 'video' && block.url)));
+          }
+          
+          // 画像・動画・アルバムを順序通りに表示
+          let filteredBlocks = allOrderedBlocks.filter(block => 
+            ((block.type === 'image' && block.url) || 
+             (block.type === 'video' && block.url) || 
+             (block.type === 'album' && block.albumItems && block.albumItems.length > 0))
+          );
+          
+          return filteredBlocks.length > 0 ? (
+          <div className="w-full mb-6" style={{ backgroundColor: colors.background }}>
             <div className="max-w-2xl mx-auto px-4 sm:px-6 md:px-8">
-              {mediaBlocks.filter(block => !block.isTopic && block.type !== 'text' && block.type !== 'album' && block.visibility === 'public' && ((block.type === 'image' && block.url) || (block.type === 'video' && block.url))).map((block, index) => {
+              {filteredBlocks.map((block, index) => {
                 if (block.type === 'image' && block.url) {
                   return (
                     <div
                       key={block.id}
                       data-media-block
-                      className={`w-full rounded-lg overflow-hidden cursor-pointer hover:opacity-90 transition-all duration-500 mb-4 ${
-                        visibleSections.has(`media-${index}`)
-                          ? 'opacity-100 translate-y-0'
-                          : 'opacity-0 translate-y-8'
-                      }`}
+                      className="w-full rounded-lg overflow-hidden cursor-pointer hover:opacity-90 transition-all duration-500 mb-12 opacity-100 translate-y-0"
                       style={{ 
                         aspectRatio: '2/1',
                         transitionDelay: `${index * 100}ms`,
@@ -1607,11 +1686,7 @@ export function PublicPageClient({ initialPageId }: PublicPageClientProps) {
                     <div
                       key={block.id}
                       data-media-block
-                      className={`w-full rounded-lg overflow-hidden cursor-pointer hover:opacity-90 transition-all duration-500 relative mb-4 ${
-                        visibleSections.has(`media-${index}`)
-                          ? 'opacity-100 translate-y-0'
-                          : 'opacity-0 translate-y-8'
-                      }`}
+                      className="w-full rounded-lg overflow-hidden cursor-pointer hover:opacity-90 transition-all duration-500 relative mb-12 opacity-100 translate-y-0"
                       style={{ 
                         aspectRatio: '2/1', 
                         position: 'relative',
@@ -1740,24 +1815,107 @@ export function PublicPageClient({ initialPageId }: PublicPageClientProps) {
                     </div>
                   );
                 }
+                // アルバムブロックの場合（Photosセクション内で表示、横スクロールデザイン）
+                if (block.type === 'album' && block.albumItems && block.albumItems.length > 0) {
+                  return (
+                    <div key={block.id} className="mb-6">
+                      {block.title && (
+                        <h3 className="text-lg font-bold mb-1" style={{ color: colors.text }}>
+                          {block.title}
+                        </h3>
+                      )}
+                      {block.description && (
+                        <p className="text-sm mb-4 whitespace-pre-wrap" style={{ color: colors.text, opacity: 0.8 }}>
+                          {block.description}
+                        </p>
+                      )}
+                      <div className="overflow-x-auto scrollbar-hide -mx-4 sm:-mx-6 md:-mx-8" style={{ WebkitOverflowScrolling: 'touch' }}>
+                        <div className="flex gap-4 px-4 sm:px-6 md:px-8 pb-4" style={{ width: 'max-content' }}>
+                          {block.albumItems.map((item: any, itemIndex: number) => {
+                            const itemSize = 200; // Topicsと同じサイズ
+                            return (
+                              <div
+                                key={item.id}
+                                className="flex-shrink-0 rounded-lg overflow-hidden cursor-pointer hover:opacity-90 transition relative"
+                                style={{ width: `${itemSize}px`, height: `${itemSize}px` }}
+                                onClick={() => {
+                                  setSelectedAlbum(block);
+                                  setSelectedAlbumIndex(itemIndex);
+                                }}
+                              >
+                                <img
+                                  src={item.url}
+                                  alt={item.description || block.title || 'Album item'}
+                                  className="w-full h-full object-cover"
+                                  style={{ position: 'relative', zIndex: 0 }}
+                                />
+                                {/* グラデーションオーバーレイ（左下部） - アルバムの場合は常に表示 */}
+                                <div 
+                                  className="absolute left-0 right-0"
+                                  style={{
+                                    bottom: 0,
+                                    height: '50%',
+                                    background: generateThumbnailGradient(colors.gradient || '#000000'),
+                                    pointerEvents: 'none',
+                                    zIndex: 1,
+                                    marginBottom: 0,
+                                    paddingBottom: 0,
+                                  }}
+                                />
+                                {/* タイトルと説明文（左下） */}
+                                {(item.description || (itemIndex === 0 && block.title)) && (
+                                  <div className="absolute bottom-0 left-0 right-0 p-2" style={{ zIndex: 2 }}>
+                                    <p
+                                      className="text-xs font-medium truncate"
+                                      style={{
+                                        color: colors.text,
+                                        textShadow: colors.text === '#ffffff' || colors.text === '#fff' || colors.text.toLowerCase() === 'white'
+                                          ? '0 1px 2px rgba(0, 0, 0, 0.5)'
+                                          : '0 1px 2px rgba(255, 255, 255, 0.5)'
+                                      }}
+                                    >
+                                      {item.description || (itemIndex === 0 ? block.title : '') || ''}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
                 return null;
               })}
             </div>
           </div>
-        )}
+          ) : null;
+        })()}
 
         {/* Messageセクション（テキストブロックのみ、Topicsと同じレイアウトスタイル） */}
-        {mediaBlocks.filter(block => block.type === 'text' && block.visibility === 'public').length > 0 && (
-          <div className="w-full py-2" style={{ backgroundColor: colors.background }}>
+        {(() => {
+          let filteredBlocks = mediaBlocks.filter(block => block.type === 'text' && block.visibility === 'public');
+          
+          // orderingに基づいてソート
+          if (pageData.ordering && Array.isArray(pageData.ordering)) {
+            const orderMap = new Map(pageData.ordering.map((id: string, index: number) => [id, index]));
+            filteredBlocks = filteredBlocks.sort((a, b) => {
+              const orderA = orderMap.get(a.id) ?? 999999;
+              const orderB = orderMap.get(b.id) ?? 999999;
+              return orderA - orderB;
+            });
+          }
+          
+          return filteredBlocks.length > 0 ? (
+          <div className="w-full mb-6" style={{ backgroundColor: colors.background }}>
             <div className="max-w-2xl mx-auto px-4 sm:px-6 md:px-8">
               <h3 className="text-lg font-bold mb-4" style={{ color: colors.text }}>
                 {pageData.messageTitle || 'Message'}
               </h3>
               <div className="overflow-x-auto scrollbar-hide -mx-4 sm:-mx-6 md:-mx-8" style={{ WebkitOverflowScrolling: 'touch' }}>
                 <div className="flex gap-4 px-4 sm:px-6 md:px-8 pb-4" style={{ width: 'max-content' }}>
-                  {mediaBlocks
-                    .filter(block => block.type === 'text' && block.visibility === 'public')
-                    .map((block) => {
+                  {filteredBlocks.map((block) => {
                       const itemSize = 200; // Topicsと同じサイズ
                       return (
                         <div
@@ -1841,21 +1999,47 @@ export function PublicPageClient({ initialPageId }: PublicPageClientProps) {
               </div>
             </div>
           </div>
-        )}
+          ) : null;
+        })()}
 
-        {/* アルバムセクション（Topicsと同じレイアウトスタイル、タイトルはTopicsのタイトル位置に表示） */}
-        {mediaBlocks.filter(block => block.type === 'album' && block.albumItems && block.albumItems.length > 0 && block.visibility === 'public').length > 0 && (
-          <div className="w-full py-2" style={{ backgroundColor: colors.background }}>
+        {/* アルバムセクション（orderingに含まれていないアルバムのみ表示、Topicsと同じレイアウトスタイル） */}
+        {(() => {
+          // orderingに含まれているアルバムのIDを取得
+          const orderedAlbumIds = new Set<string>();
+          if (pageData.ordering && Array.isArray(pageData.ordering)) {
+            const orderedBlocks = mediaBlocks.filter(block => 
+              block.type === 'album' && 
+              pageData.ordering.includes(block.id)
+            );
+            orderedBlocks.forEach(block => orderedAlbumIds.add(block.id));
+          }
+          
+          // orderingに含まれていないアルバムのみを表示
+          let filteredBlocks = mediaBlocks.filter(block => 
+            block.type === 'album' && 
+            block.albumItems && 
+            block.albumItems.length > 0 && 
+            block.visibility === 'public' &&
+            !orderedAlbumIds.has(block.id) // orderingに含まれていないもののみ
+          );
+          
+          // orderingに基づいてソート（orderingに含まれていない場合は従来通り）
+          if (pageData.ordering && Array.isArray(pageData.ordering) && pageData.ordering.length > 0) {
+            const orderMap = new Map(pageData.ordering.map((id: string, index: number) => [id, index]));
+            filteredBlocks = filteredBlocks.sort((a, b) => {
+              const orderA = orderMap.get(a.id) ?? 999999;
+              const orderB = orderMap.get(b.id) ?? 999999;
+              return orderA - orderB;
+            });
+          }
+          
+          return filteredBlocks.length > 0 ? (
+          <div className="w-full mb-6" style={{ backgroundColor: colors.background }}>
             <div className="max-w-2xl mx-auto px-4 sm:px-6 md:px-8">
               {/* アルバムタイトルをTopicsのタイトル位置に表示（各アルバムブロックごと） */}
-              {Array.from(new Set(
-                mediaBlocks
-                  .filter(block => block.type === 'album' && block.albumItems && block.albumItems.length > 0 && block.visibility === 'public')
-                  .map(block => block.id)
-              )).map(albumBlockId => {
-                const albumBlock = mediaBlocks.find(b => b.id === albumBlockId && b.type === 'album');
+              {filteredBlocks.map((albumBlock) => {
                 return albumBlock?.title ? (
-                  <div key={`album-section-${albumBlockId}`} className="mb-4">
+                  <div key={`album-section-${albumBlock.id}`} className="mb-4">
                     <h3 className="text-lg font-bold mb-1" style={{ color: colors.text }}>
                       {albumBlock.title}
                     </h3>
@@ -1923,7 +2107,8 @@ export function PublicPageClient({ initialPageId }: PublicPageClientProps) {
               })}
             </div>
           </div>
-        )}
+          ) : null;
+        })()}
         </div>
       </div>
 
@@ -2331,19 +2516,6 @@ export function PublicPageClient({ initialPageId }: PublicPageClientProps) {
           )}
         </div>
       )}
-        {/* コンテンツエリア下部のグラデーション（背景色から透明へのグラデーション、最下部に配置） */}
-        <div 
-          className="fixed bottom-0 left-0 right-0 z-0 pointer-events-none"
-          style={{
-            height: '30vh',
-            background: `linear-gradient(to top, ${colors.background} 0%, ${colors.background} 40%, transparent 100%)`,
-          }}
-        />
-
-        {/* 広告バナー（最下部） */}
-        <div className="relative z-10 pb-8">
-          <TenantAdvertisement tenantId={pageData.tenant} />
-        </div>
     </div>
   );
 }

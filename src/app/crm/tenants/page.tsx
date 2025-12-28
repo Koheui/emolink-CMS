@@ -1,22 +1,22 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Building, Search, Loader2, Calendar } from 'lucide-react';
-import { getAllTenants } from '@/lib/firestore-crm';
-import { Tenant } from '@/types';
+import { getAllTenants, TenantWithCompany } from '@/lib/firestore-crm';
 import Link from 'next/link';
 import { formatDate } from '@/lib/utils';
 
 export default function TenantsPage() {
-  const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [filteredTenants, setFilteredTenants] = useState<Tenant[]>([]);
+  const [tenants, setTenants] = useState<TenantWithCompany[]>([]);
+  const [filteredTenants, setFilteredTenants] = useState<TenantWithCompany[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [groupByCompany, setGroupByCompany] = useState<boolean>(false);
   
   useEffect(() => {
     fetchTenants();
@@ -24,17 +24,35 @@ export default function TenantsPage() {
   
   useEffect(() => {
     // 検索フィルタリング
+    let filtered = tenants;
     if (searchTerm) {
-      const filtered = tenants.filter(tenant => 
+      filtered = tenants.filter(tenant => 
         tenant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         tenant.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        tenant.description?.toLowerCase().includes(searchTerm.toLowerCase())
+        tenant.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        tenant.companyName?.toLowerCase().includes(searchTerm.toLowerCase())
       );
-      setFilteredTenants(filtered);
-    } else {
-      setFilteredTenants(tenants);
     }
-  }, [searchTerm, tenants]);
+    
+    // 企業ごとにグループ化
+    if (groupByCompany) {
+      const grouped = filtered.reduce((acc, tenant) => {
+        const companyKey = tenant.companyName || '企業未設定';
+        if (!acc[companyKey]) {
+          acc[companyKey] = [];
+        }
+        acc[companyKey].push(tenant);
+        return acc;
+      }, {} as Record<string, TenantWithCompany[]>);
+      
+      // グループ化されたデータをフラット化（企業名でソート）
+      const sortedGroups = Object.keys(grouped).sort();
+      const groupedTenants = sortedGroups.flatMap(companyName => grouped[companyName]);
+      setFilteredTenants(groupedTenants);
+    } else {
+      setFilteredTenants(filtered);
+    }
+  }, [searchTerm, tenants, groupByCompany]);
   
   const fetchTenants = async () => {
     try {
@@ -92,17 +110,28 @@ export default function TenantsPage() {
           </div>
         </div>
         
-        {/* 検索バー */}
+        {/* 検索バーとフィルタ */}
         <Card className="mb-6">
           <CardContent className="pt-6">
-            <div className="flex items-center gap-2">
-              <Search className="h-5 w-5 text-gray-400" />
-              <Input
-                placeholder="店舗名、ID、説明で検索..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="flex-1"
-              />
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 flex-1">
+                <Search className="h-5 w-5 text-gray-400" />
+                <Input
+                  placeholder="店舗名、ID、説明、企業名で検索..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="flex-1"
+                />
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={groupByCompany}
+                  onChange={(e) => setGroupByCompany(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <span className="text-sm font-medium">企業ごとにグループ化</span>
+              </label>
             </div>
           </CardContent>
         </Card>
@@ -119,6 +148,7 @@ export default function TenantsPage() {
                 <thead>
                   <tr className="border-b">
                     <th className="text-left p-4 font-semibold">登録日</th>
+                    <th className="text-left p-4 font-semibold">企業名</th>
                     <th className="text-left p-4 font-semibold">店舗ID</th>
                     <th className="text-left p-4 font-semibold">店舗名</th>
                     <th className="text-left p-4 font-semibold">説明</th>
@@ -129,42 +159,62 @@ export default function TenantsPage() {
                 <tbody>
                   {filteredTenants.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="text-center p-8 text-gray-500">
+                      <td colSpan={7} className="text-center p-8 text-gray-500">
                         店舗が見つかりませんでした
                       </td>
                     </tr>
                   ) : (
-                    filteredTenants.map((tenant) => (
-                      <tr key={tenant.id} className="border-b hover:bg-gray-50">
-                        <td className="p-4">
-                          <div className="flex items-center gap-2">
-                            <Calendar className="h-4 w-4 text-gray-400" />
-                            <span className="text-sm">{formatDate(tenant.createdAt)}</span>
-                          </div>
-                        </td>
-                        <td className="p-4">
-                          <Badge variant="outline">{tenant.id}</Badge>
-                        </td>
-                        <td className="p-4">
-                          <span className="text-sm font-medium">{tenant.name}</span>
-                        </td>
-                        <td className="p-4">
-                          <span className="text-sm text-gray-600">{tenant.description || '-'}</span>
-                        </td>
-                        <td className="p-4">
-                          <Badge 
-                            variant={tenant.status === 'active' ? 'default' : 'secondary'}
-                          >
-                            {tenant.status === 'active' ? '有効' : tenant.status === 'inactive' ? '無効' : '停止中'}
-                          </Badge>
-                        </td>
-                        <td className="p-4">
-                          <Link href={`/crm/tenants/${tenant.id}`}>
-                            <Button variant="outline" size="sm">詳細</Button>
-                          </Link>
-                        </td>
-                      </tr>
-                    ))
+                    filteredTenants.map((tenant, index) => {
+                      // 企業ごとにグループ化する場合、企業名が変わったら区切り線を表示
+                      const showCompanyDivider = groupByCompany && index > 0 && 
+                        filteredTenants[index - 1].companyName !== tenant.companyName;
+                      
+                      return (
+                        <React.Fragment key={tenant.id}>
+                          {showCompanyDivider && (
+                            <tr>
+                              <td colSpan={7} className="p-2 bg-gray-100 border-t-2 border-gray-300"></td>
+                            </tr>
+                          )}
+                          <tr className="border-b hover:bg-gray-50">
+                            <td className="p-4">
+                              <div className="flex items-center gap-2">
+                                <Calendar className="h-4 w-4 text-gray-400" />
+                                <span className="text-sm">{formatDate(tenant.createdAt)}</span>
+                              </div>
+                            </td>
+                            <td className="p-4">
+                              {tenant.companyName ? (
+                                <span className="text-sm font-medium text-blue-600">{tenant.companyName}</span>
+                              ) : (
+                                <span className="text-sm text-gray-400">-</span>
+                              )}
+                            </td>
+                            <td className="p-4">
+                              <Badge variant="outline">{tenant.id}</Badge>
+                            </td>
+                            <td className="p-4">
+                              <span className="text-sm font-medium">{tenant.name}</span>
+                            </td>
+                            <td className="p-4">
+                              <span className="text-sm text-gray-600">{tenant.description || '-'}</span>
+                            </td>
+                            <td className="p-4">
+                              <Badge 
+                                variant={tenant.status === 'active' ? 'default' : 'secondary'}
+                              >
+                                {tenant.status === 'active' ? '有効' : tenant.status === 'inactive' ? '無効' : '停止中'}
+                              </Badge>
+                            </td>
+                            <td className="p-4">
+                              <Link href={`/crm/tenants/${tenant.id}`}>
+                                <Button variant="outline" size="sm">詳細</Button>
+                              </Link>
+                            </td>
+                          </tr>
+                        </React.Fragment>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -175,6 +225,8 @@ export default function TenantsPage() {
     </div>
   );
 }
+
+
 
 
 
